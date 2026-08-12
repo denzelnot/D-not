@@ -536,6 +536,7 @@ function renderGcalField(){
    GOOGLE ДИСК — бэкап
    ========================================================= */
 const DRIVE_BACKUP_NAME='dnot-backup.json';
+const DRIVE_FOLDER_NAME='D-Not';
 let driveBackupDebounce=null;
 
 async function driveFindFileId(){
@@ -545,6 +546,24 @@ async function driveFindFileId(){
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
   return (data.files && data.files[0]) ? data.files[0].id : null;
+}
+async function driveEnsureFolder(){
+  if(SETTINGS.driveFolderId) return SETTINGS.driveFolderId;
+  const q = `name%3D%27${DRIVE_FOLDER_NAME}%27+and+mimeType%3D%27application%2Fvnd.google-apps.folder%27+and+trashed%3Dfalse`;
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(data.files && data.files[0]){ SETTINGS.driveFolderId=data.files[0].id; await saveSettings(); return SETTINGS.driveFolderId; }
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'application/json' },
+    body: JSON.stringify({name:DRIVE_FOLDER_NAME, mimeType:'application/vnd.google-apps.folder'})
+  });
+  if(!createRes.ok) throw new Error('HTTP '+createRes.status);
+  const folder = await createRes.json();
+  SETTINGS.driveFolderId = folder.id;
+  await saveSettings();
+  return folder.id;
 }
 async function driveUploadBackup(silent){
   if(!gcalIsConnected()){ if(!silent) alert('Сначала подключите Google в Настройках.'); return; }
@@ -559,8 +578,9 @@ async function driveUploadBackup(silent){
       });
       if(!res.ok) throw new Error('HTTP '+res.status);
     } else {
+      const folderId = await driveEnsureFolder();
       const boundary='dnotbound';
-      const metadata=JSON.stringify({name:DRIVE_BACKUP_NAME, mimeType:'application/json'});
+      const metadata=JSON.stringify({name:DRIVE_BACKUP_NAME, mimeType:'application/json', parents:[folderId]});
       const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n--${boundary}--`;
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method:'POST',
@@ -577,7 +597,12 @@ async function driveUploadBackup(silent){
     if(!silent) flashSaved('бэкап на Google Диске');
     renderDriveField();
   }catch(err){
-    if(!silent) alert('Не удалось сохранить на Google Диск: '+err.message+'\nВозможно, истёк доступ — зайдите в Настройки и нажмите «Войти» ещё раз.');
+    if(!silent){
+      const scopeHint = /403|401/.test(err.message)
+        ? '\nПохоже, не хватает прав. Проверьте в Google Cloud Console → OAuth consent screen → Scopes, что там добавлен .../auth/drive.file, затем в Настройках D-Not нажмите «Войти» заново.'
+        : '\nВозможно, истёк доступ — зайдите в Настройки и нажмите «Войти» ещё раз.';
+      alert('Не удалось сохранить на Google Диск: '+err.message+scopeHint);
+    }
   }
 }
 async function driveDownloadBackup(){
@@ -620,7 +645,7 @@ function renderDriveField(){
   const connected = gcalIsConnected();
   const lastBackup = SETTINGS.driveBackupAt ? formatDate(SETTINGS.driveBackupAt) : 'ещё не было';
   wrap.innerHTML = `<label>Бэкап на Google Диске</label>
-    <div class="hint" style="margin-bottom:8px;">Файл «${DRIVE_BACKUP_NAME}» в вашем Диске. Последний бэкап: ${lastBackup}. Виден с любого устройства, где вы войдёте под тем же Google-аккаунтом.</div>
+    <div class="hint" style="margin-bottom:8px;">Файл «${DRIVE_BACKUP_NAME}» в папке «${DRIVE_FOLDER_NAME}» на вашем Диске (создаётся автоматически при первом сохранении). Последний бэкап: ${lastBackup}. Виден с любого устройства, где вы войдёте под тем же Google-аккаунтом.</div>
     <button class="btn btn-block ${connected?'btn-accent':''}" id="drive-upload-btn">⭱ Сохранить на Диск сейчас</button>
     <button class="btn btn-block" id="drive-download-btn" style="margin-top:8px;">⭳ Восстановить с Диска</button>
     <label class="checkbox-label" style="margin-top:10px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
