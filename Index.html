@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4fbdae">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="D-Not">
+<meta name="mobile-web-app-capable" content="yes">
+<title>D-Not</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --bg: #14161b;
+    --panel: #1a1d24;
+    --panel-2: #20242c;
+    --border: #2a2e37;
+    --text: #eef0f3;
+    --muted: #8b909c;
+    --dim: #5c616d;
+    --teal: #4fbdae;
+    --teal-dim: #2c4744;
+    --gold: #e8b24d;
+    --red: #d9645f;
+    --radius: 6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'IBM Plex Sans', sans-serif; font-size:14px;
+    display:flex; overflow:hidden;
+  }
+  ::selection{ background:var(--teal-dim); }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .hidden{ display:none !important; }
+
+  #app{ display:flex; width:100%; height:100vh; }
+  #sidebar{ width:320px; min-width:230px; max-width:60%; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+  #resizer{ width:4px; cursor:col-resize; background:transparent; }
+  #resizer:hover, #resizer.active{ background:var(--teal-dim); }
+  #main{ flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+
+  .brand{ padding:18px 16px 10px 16px; display:flex; align-items:baseline; gap:8px; }
+  .brand-mark{
+    font-family:'IBM Plex Mono', monospace; font-weight:600;
+    font-size:11px; color:#0c1615; background:linear-gradient(135deg,#4fe0c8,#4f8fe0);
+    padding:2px 6px; border-radius:5px; letter-spacing:.04em;
+  }
+  .brand-title{ font-weight:700; font-size:17px; letter-spacing:.01em; }
+
+  .search-wrap{ padding:0 12px 10px 12px; }
+  .search-input{ width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:7px 10px; font-family:inherit; font-size:13px; outline:none; }
+  .search-input:focus{ border-color:var(--teal-dim); }
+
+  #tree-scroll{ flex:1; overflow-y:auto; padding:4px 8px 8px 8px; }
+  #tree-scroll::-webkit-scrollbar{ width:8px; }
+  #tree-scroll::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
+
+  .node-row{ display:flex; align-items:center; gap:6px; padding:6px 6px; border-radius:var(--radius); cursor:pointer; user-select:none; position:relative; }
+  .node-row:hover{ background:var(--panel-2); }
+  .node-row.selected{ background:var(--teal-dim); }
+  .node-row.selected .node-label{ color:var(--text); }
+  .chevron{ width:14px; height:14px; flex:none; display:flex; align-items:center; justify-content:center; color:var(--dim); transition:transform .12s ease; }
+  .chevron.open{ transform:rotate(90deg); }
+  .chevron.hidden{ visibility:hidden; }
+  .node-icon{ flex:none; width:16px; text-align:center; opacity:.85; }
+  .node-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13.5px; }
+  .node-count{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--dim); background:var(--panel-2); border:1px solid var(--border); padding:0px 5px; border-radius:8px; min-width:18px; text-align:center; }
+  .node-row.selected .node-count{ background:#183835; border-color:var(--teal-dim); color:var(--teal); }
+  .node-actions{ display:none; gap:2px; flex:none; }
+  .node-row:hover .node-actions{ display:flex; }
+  .icon-btn{ width:20px; height:20px; display:flex; align-items:center; justify-content:center; color:var(--dim); border-radius:4px; cursor:pointer; background:none; border:none; }
+  .icon-btn:hover{ color:var(--text); background:var(--border); }
+  .children{ margin-left:16px; border-left:1px solid var(--border); padding-left:2px; }
+
+  .pinned-block{ padding:2px 8px 8px 8px; }
+  .section-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.08em; color:var(--dim); text-transform:uppercase; padding:10px 10px 4px 10px; }
+
+  .sidebar-footer{ border-top:1px solid var(--border); padding:10px 12px; display:flex; gap:8px; }
+  .btn{ font-family:inherit; font-size:12.5px; font-weight:500; color:var(--text); background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:7px 10px; cursor:pointer; display:flex; align-items:center; gap:6px; }
+  .btn:hover{ border-color:var(--dim); }
+  .btn-accent{ background:var(--teal); color:#0c1615; border-color:var(--teal); font-weight:600; }
+  .btn-accent:hover{ background:#5ecdbd; }
+  .btn-ghost{ background:none; }
+  .btn-danger{ color:var(--red); }
+  .btn-small{ padding:4px 8px; font-size:12px; }
+  .btn-block{ width:100%; justify-content:center; }
+
+  #main-header{ padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  #main-title-wrap{ display:flex; align-items:center; gap:10px; min-width:0; }
+  #main-code{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--teal); border:1px solid var(--teal-dim); padding:2px 7px; border-radius:4px; flex:none; }
+  #main-title{ font-size:18px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #main-sub{ font-size:12px; color:var(--dim); margin-top:2px; }
+
+  #item-list{ flex:1; overflow-y:auto; padding:14px 24px 24px 24px; }
+  #item-list::-webkit-scrollbar{ width:10px; }
+  #item-list::-webkit-scrollbar-thumb{ background:var(--border); border-radius:5px; }
+
+  .card{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:8px; cursor:pointer; display:flex; gap:10px; align-items:flex-start; transition:border-color .1s; }
+  .card:hover{ border-color:var(--dim); }
+  .card-type-icon{ flex:none; width:26px; height:26px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:13px; margin-top:1px; }
+  .task-check-btn{ flex:none; width:26px; height:26px; border-radius:6px; border:2px solid var(--gold); background:transparent; color:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; margin-top:1px; padding:0; }
+  .task-check-btn:hover{ border-color:#fff; }
+  .task-check-btn.done{ background:#2fae6a; border-color:#2fae6a; color:#fff; }
+  .checklist-row input[type=text].done{ text-decoration:line-through; color:var(--dim); }
+  .card-body{ flex:1; min-width:0; }
+  .card-top{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .card-title{ font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-title.done{ text-decoration:line-through; color:var(--dim); }
+  .card-date{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--dim); flex:none; }
+  .card-snippet{ font-size:12.5px; color:var(--muted); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; align-items:center; }
+  .tag-chip{ font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--muted); background:var(--panel-2); border:1px solid var(--border); padding:1px 6px; border-radius:9px; white-space:nowrap; }
+  .card-thumb{ width:26px;height:26px;border-radius:6px;object-fit:cover; flex:none; margin-top:1px; }
+  .share-btn{ margin-left:auto; border-radius:5px; border:1px solid var(--border); background:var(--panel-2); color:var(--dim); display:flex; align-items:center; gap:4px; cursor:pointer; font-size:10.5px; flex:none; padding:3px 7px; font-family:'IBM Plex Mono',monospace; }
+  .share-btn:hover{ color:var(--teal); border-color:var(--teal-dim); }
+
+  .empty-state{ display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--dim); text-align:center; padding:40px; }
+  .empty-state .glyph{ font-size:34px; margin-bottom:10px; opacity:.6; font-family:'IBM Plex Mono',monospace; }
+  .empty-state .msg{ font-size:13.5px; max-width:340px; line-height:1.5; }
+
+  .overlay{ position:fixed; inset:0; background:rgba(8,9,11,.6); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
+  .modal{ background:var(--panel); border:1px solid var(--border); border-radius:10px; width:100%; max-width:480px; max-height:86vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .modal-wide{ max-width:620px; }
+  .modal-header{ padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .modal-header h3{ margin:0; font-size:15px; font-weight:700; }
+  .modal-body{ padding:16px 18px; overflow-y:auto; }
+  .modal-footer{ padding:12px 18px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .close-x{ background:none; border:none; color:var(--dim); cursor:pointer; font-size:16px; padding:4px; }
+  .close-x:hover{ color:var(--text); }
+
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:11.5px; color:var(--muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.05em; font-family:'IBM Plex Mono',monospace; }
+  .field input[type=text], .field input[type=url], .field input[type=password], .field input[type=datetime-local], .field textarea, .field select{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius);
+    color:var(--text); padding:8px 10px; font-family:inherit; font-size:13.5px; outline:none; resize:vertical;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus{ border-color:var(--teal-dim); }
+  .checkbox-label{ display:flex; align-items:center; gap:7px; margin-top:10px; text-transform:none; font-size:13px; color:var(--text); }
+  .checkbox-label input{ accent-color:var(--teal); }
+
+  .type-picker{ display:flex; gap:8px; flex-wrap:wrap; }
+  .type-opt{ flex:1; min-width:90px; text-align:center; padding:10px 6px; border-radius:var(--radius); border:1px solid var(--border); background:var(--panel-2); cursor:pointer; font-size:12.5px; }
+  .type-opt .ti{ font-size:17px; display:block; margin-bottom:4px; }
+  .type-opt.active{ border-color:var(--teal); background:var(--teal-dim); color:var(--text); }
+
+  .tagpick-tree{ border:1px solid var(--border); border-radius:var(--radius); padding:6px 8px; max-height:220px; overflow-y:auto; background:var(--panel-2); }
+  .tagpick-row{ display:flex; align-items:center; gap:7px; padding:4px 4px; border-radius:4px; }
+  .tagpick-row:hover{ background:var(--border); }
+  .tagpick-row input{ accent-color:var(--teal); }
+  .tagpick-label{ font-size:13px; }
+  .tagpick-code{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--dim); }
+
+  .file-drop{ border:1.5px dashed var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--dim); font-size:12.5px; cursor:pointer; }
+  .file-drop:hover{ border-color:var(--teal-dim); color:var(--muted); }
+  .preview-img{ max-width:100%; max-height:200px; border-radius:6px; margin-top:10px; display:block; }
+
+  .list-tools{ display:flex; gap:8px; margin-bottom:8px; }
+
+  .checklist-row{ display:flex; align-items:center; gap:7px; margin-bottom:6px; }
+  .checklist-row input[type=checkbox]{ accent-color:var(--teal); flex:none; }
+  .checklist-row input[type=text]{ flex:1; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:6px 8px; font-family:inherit; font-size:13px; }
+
+  .save-toast{ position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(8px); background:var(--panel-2); border:1px solid var(--border); color:var(--muted); font-size:12px; padding:7px 14px; border-radius:20px; opacity:0; transition:all .25s ease; pointer-events:none; z-index:80; font-family:'IBM Plex Mono',monospace; }
+  .save-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  #detail-tags-current{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:20px; }
+  .hint{ font-size:11.5px; color:var(--dim); margin-top:6px; line-height:1.5; }
+
+  #lock-screen{ position:fixed; inset:0; background:var(--bg); z-index:100; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+  .lock-box{ width:100%; max-width:280px; text-align:center; }
+  .lock-icon{ font-size:26px; color:var(--teal); margin-bottom:6px; }
+  .lock-title{ font-weight:700; font-size:16px; margin-bottom:14px; }
+  .lock-error{ color:var(--red); font-size:12px; margin-top:8px; min-height:16px; }
+
+  .node-row.drop-hover{ background:var(--teal); color:#0c1615; box-shadow:0 0 0 2px var(--teal); }
+  .node-row.drop-hover .node-label{ color:#0c1615; }
+  .drag-ghost{
+    position:fixed; z-index:200; pointer-events:none;
+    background:var(--panel-2); border:1px solid var(--teal); color:var(--text);
+    padding:6px 10px; border-radius:6px; font-size:12.5px; max-width:220px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    box-shadow:0 8px 20px rgba(0,0,0,.4);
+  }
+  body.dragging-active{ cursor:grabbing; }
+  body.dragging-active .card{ cursor:grabbing; }
+
+  @media (max-width: 720px){
+    #sidebar{ position:fixed; z-index:40; height:100%; width:82%; max-width:320px; transform:translateX(-100%); transition:transform .2s ease; }
+    #sidebar.mobile-open{ transform:translateX(0); }
+    #resizer{ display:none; }
+    #main{ width:100%; }
+    #mobile-menu-btn{ display:flex !important; }
+    .overlay{ padding:0; align-items:flex-end; }
+    .modal{ max-width:100%; border-radius:12px 12px 0 0; max-height:92vh; }
+  }
+</style>
+</head>
+<body>
+
+<div id="lock-screen" class="hidden">
+  <div class="lock-box">
+    <div class="lock-icon">🔒</div>
+    <div class="lock-title">D-Not заблокирован</div>
+    <div class="field"><input type="password" id="lock-input" placeholder="Код доступа" autocomplete="current-password"></div>
+    <button class="btn btn-accent btn-block" id="lock-submit">Войти</button>
+    <div class="lock-error" id="lock-error"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div id="sidebar">
+    <div class="brand"><span class="brand-mark">D·N</span><span class="brand-title">D-Not</span></div>
+    <div class="search-wrap"><input class="search-input" id="search-input" type="text" placeholder="Поиск по всем записям…" autocomplete="off"></div>
+    <div class="pinned-block" id="pinned-block"></div>
+    <div class="section-label">Структура</div>
+    <div id="tree-scroll"></div>
+    <div class="sidebar-footer"><button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап</button></div>
+  </div>
+  <div id="resizer"></div>
+  <div id="main">
+    <div id="main-header">
+      <div id="main-title-wrap">
+        <span id="main-code" class="mono"></span>
+        <div><div id="main-title">Входящие</div><div id="main-sub"></div></div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn btn-ghost btn-small" id="mobile-menu-btn" style="display:none;">☰</button>
+        <button class="btn btn-accent" id="new-item-btn">＋ Добавить</button>
+      </div>
+    </div>
+    <div id="item-list"></div>
+  </div>
+</div>
+
+<!-- ================= ITEM MODAL (статичная разметка) ================= -->
+<div class="overlay hidden" id="item-modal-overlay">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="item-modal-title">Новая запись</h3>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button class="btn btn-small hidden" id="share-item-btn">⇪ Поделиться</button>
+        <button class="close-x" id="item-modal-close">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Тип</label>
+        <div class="type-picker" id="type-picker">
+          <div class="type-opt active" data-type="note"><span class="ti">✎</span>Заметка</div>
+          <div class="type-opt" data-type="task"><span class="ti">☐</span>Задача</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Заголовок</label>
+        <input type="text" id="f-title" placeholder="Короткое название (необязательно)" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label id="content-note-label">Текст</label>
+        <div class="list-tools">
+          <button type="button" class="btn btn-small btn-ghost" id="insert-bullet-btn">• Список</button>
+          <button type="button" class="btn btn-small btn-ghost" id="insert-number-btn">1. Нумерованный</button>
+          <button type="button" class="btn btn-small btn-ghost" id="insert-checklist-btn">☑ Чек-лист</button>
+        </div>
+        <textarea id="f-content" rows="5" placeholder="Текст, описание…"></textarea>
+        <label class="checkbox-label hidden" id="taskdone-wrap"><input type="checkbox" id="f-taskdone"> Задача выполнена <span class="hint" id="taskdone-hint" style="margin:0;"></span></label>
+      </div>
+
+      <div class="field">
+        <label>Вложения</label>
+        <div class="list-tools">
+          <button type="button" class="btn btn-small btn-ghost hidden" id="add-link-btn">🔗 Добавить ссылку</button>
+          <button type="button" class="btn btn-small btn-ghost hidden" id="add-photo-btn">🖼 Добавить фото</button>
+        </div>
+
+        <div class="hidden" id="content-link-wrap" style="margin-top:10px;">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="url" id="f-link" placeholder="https://…" autocomplete="off" style="flex:1;">
+            <button type="button" class="icon-btn" id="remove-link-btn" title="Убрать ссылку">✕</button>
+          </div>
+        </div>
+
+        <div class="hidden" id="content-photo-wrap" style="margin-top:10px;">
+          <div class="file-drop" id="file-drop">Нажмите, чтобы выбрать фото<br><span style="opacity:.6;">(будет сжато для хранения)</span></div>
+          <input type="file" id="f-file" accept="image/*" style="display:none;">
+          <div style="position:relative; display:inline-block;">
+            <img class="preview-img hidden" id="f-preview">
+            <button type="button" class="icon-btn hidden" id="remove-photo-btn" title="Убрать фото" style="position:absolute; top:4px; right:4px; background:rgba(8,9,11,.6); color:#fff;">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field" id="checklist-wrap">
+        <label>Чек-лист <span style="text-transform:none; color:var(--dim);">(подпункты с галочками)</span></label>
+        <div id="checklist-items"></div>
+        <button type="button" class="btn btn-small btn-ghost" id="add-checklist-item-btn">＋ Добавить пункт</button>
+      </div>
+
+      <div class="field">
+        <label>Напоминание <span style="text-transform:none; color:var(--dim);">(сработает, пока приложение открыто в браузере)</span></label>
+        <input type="datetime-local" id="f-reminder">
+        <label class="checkbox-label hidden" id="gcal-sync-wrap"><input type="checkbox" id="f-gcal-sync"> Добавить событие в Google Календарь</label>
+      </div>
+
+      <div class="field" id="tags-field">
+        <label>Метки <span style="text-transform:none; color:var(--dim);">(можно несколько)</span></label>
+        <div id="detail-tags-current"></div>
+        <div class="tagpick-tree" id="tagpick-tree"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div><button class="btn btn-ghost btn-danger btn-small hidden" id="delete-item-btn">Удалить запись</button></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" id="cancel-item-btn">Отмена</button>
+        <button class="btn btn-accent" id="save-item-btn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= TAG MODAL ================= -->
+<div class="overlay hidden" id="tag-modal-overlay">
+  <div class="modal">
+    <div class="modal-header"><h3 id="tag-modal-title">Новый подраздел</h3><button class="close-x" id="tag-modal-close">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Название</label><input type="text" id="tag-label" autocomplete="off" placeholder="Например: Финансы"></div>
+      <div class="field"><label>Код / номер <span style="text-transform:none; color:var(--dim);">(необязательно)</span></label><input type="text" id="tag-code" autocomplete="off" placeholder="напр. 1. или 20 000.1"></div>
+      <div class="hint" id="tag-modal-hint"></div>
+    </div>
+    <div class="modal-footer"><span></span><div style="display:flex; gap:8px;"><button class="btn btn-ghost" id="tag-modal-cancel">Отмена</button><button class="btn btn-accent" id="tag-modal-save">Сохранить</button></div></div>
+  </div>
+</div>
+
+<!-- ================= SETTINGS MODAL ================= -->
+<div class="overlay hidden" id="settings-modal-overlay">
+  <div class="modal">
+    <div class="modal-header"><h3>Настройки и бэкап</h3><button class="close-x" id="settings-modal-close">✕</button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Резервная копия</label>
+        <button class="btn btn-block" id="export-btn">⭳ Скачать бэкап (JSON)</button>
+        <div class="hint">Сохраняет все записи и структуру в файл на диск. Делайте это периодически — это единственная стопроцентная гарантия от потери данных.</div>
+      </div>
+      <div class="field">
+        <label>Восстановление</label>
+        <button class="btn btn-block" id="import-btn">⭱ Загрузить бэкап из файла</button>
+        <input type="file" id="import-file" accept=".json" style="display:none;">
+      </div>
+      <div class="field" id="gcal-field"></div>
+      <div class="field" id="drive-field"></div>
+      <div class="field" id="pass-field"></div>
+      <div class="field">
+        <label style="color:var(--red);">Опасная зона</label>
+        <div class="hint">Сотрёт заметки, задачи, код доступа и подключение Google только на этом устройстве/браузере. Бэкап на Google Диске и события в Google Календаре не затронет — их можно будет восстановить обратно в любой момент.</div>
+        <button class="btn btn-block btn-danger" id="wipe-device-btn" style="margin-top:8px;">Выйти и очистить это устройство</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span class="hint mono">D-Not · от DenzelNot</span>
+      <button class="btn" id="settings-modal-close2">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div class="save-toast" id="save-toast">сохранено</div>
+
+<script>
+/* =========================================================
+   ИКОНКА / МАНИФЕСТ (генерируются на устройстве, без интернета)
+   ========================================================= */
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function generateAppIcon(size){
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,size,size);
+  grad.addColorStop(0,'#3fe0c4'); grad.addColorStop(1,'#3f7fe0');
+  roundRect(ctx,0,0,size,size,size*0.22); ctx.fillStyle=grad; ctx.fill();
+  ctx.fillStyle='#0c1615';
+  ctx.font='700 '+(size*0.5)+'px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('D', size*0.5, size*0.55);
+  ctx.fillStyle='rgba(12,22,21,.5)';
+  ctx.fillRect(size*0.27, size*0.73, size*0.46, size*0.045);
+  return canvas.toDataURL('image/png');
+}
+function setupBranding(){
+  try{
+    const icon192 = generateAppIcon(192);
+    const icon512 = generateAppIcon(512);
+    const icon180 = generateAppIcon(180);
+    let fav = document.querySelector('link[rel="icon"]');
+    if(!fav){ fav=document.createElement('link'); fav.rel='icon'; document.head.appendChild(fav); }
+    fav.href = icon192;
+    let apple = document.querySelector('link[rel="apple-touch-icon"]');
+    if(!apple){ apple=document.createElement('link'); apple.rel='apple-touch-icon'; document.head.appendChild(apple); }
+    apple.href = icon180;
+    const manifest = {
+      name:'D-Not', short_name:'D-Not', description:'Личная картотека D-Not — от DenzelNot',
+      start_url:'.', display:'standalone', background_color:'#14161b', theme_color:'#4fbdae',
+      icons:[{src:icon192,sizes:'192x192',type:'image/png'},{src:icon512,sizes:'512x512',type:'image/png'}]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+    const url = URL.createObjectURL(blob);
+    let mf = document.querySelector('link[rel="manifest"]');
+    if(!mf){ mf=document.createElement('link'); mf.rel='manifest'; document.head.appendChild(mf); }
+    mf.href = url;
+  }catch(e){ console.error('branding setup failed', e); }
+}
+setupBranding();
+
+/* =========================================================
+   GOOGLE КАЛЕНДАРЬ
+   ========================================================= */
+let GCAL_CLIENT_ID = null;
+let gcalTokenClient = null;
+let gcalAccessToken = null;
+let gcalTokenExpiry = 0;
+
+function gcalIsConnected(){ return !!gcalAccessToken && Date.now() < gcalTokenExpiry; }
+
+function initGcalClientIfNeeded(){
+  if(!GCAL_CLIENT_ID || !window.google || !google.accounts || !google.accounts.oauth2) return;
+  if(gcalTokenClient) return;
+  gcalTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GCAL_CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.file',
+    callback: (resp)=>{
+      if(resp && resp.access_token){
+        gcalAccessToken = resp.access_token;
+        gcalTokenExpiry = Date.now() + (resp.expires_in*1000 - 60000);
+        renderGcalField();
+        flashSaved('Google подключён');
+      }
+    }
+  });
+}
+function gcalConnect(){
+  initGcalClientIfNeeded();
+  if(!gcalTokenClient){ alert('Google ещё не загрузился, попробуйте через пару секунд, или проверьте Client ID.'); return; }
+  gcalTokenClient.requestAccessToken({prompt: gcalAccessToken ? '' : 'consent'});
+}
+async function gcalUpsertEvent(item){
+  const eventBody = {
+    summary: item.title || (item.text||'').slice(0,60) || 'Задача из D-Not',
+    description: (item.text||'') + (item.link ? '\n'+item.link : '') + (item.checklist&&item.checklist.length ? '\n\n'+item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n') : ''),
+    start:{ dateTime: new Date(item.reminderAt).toISOString() },
+    end:{ dateTime: new Date(item.reminderAt + 30*60000).toISOString() }
+  };
+  const url = item.gcalEventId
+    ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalEventId}`
+    : 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+  const res = await fetch(url, {
+    method: item.gcalEventId ? 'PATCH' : 'POST',
+    headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'application/json' },
+    body: JSON.stringify(eventBody)
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  return res.json();
+}
+async function gcalDeleteEvent(eventId){
+  return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method:'DELETE', headers:{ 'Authorization':'Bearer '+gcalAccessToken }
+  });
+}
+async function syncItemToCalendar(item, wantSync){
+  if(!wantSync){
+    if(item.gcalEventId && gcalIsConnected()){
+      try{ await gcalDeleteEvent(item.gcalEventId); }catch(e){}
+      item.gcalEventId=null;
+      ITEMS = ITEMS.map(it=>it.id===item.id?item:it);
+      saveItems();
+    }
+    return;
+  }
+  if(!gcalIsConnected()){
+    alert('Чтобы синхронизировать с Google Календарём, откройте Настройки → Google Календарь и нажмите «Войти».');
+    return;
+  }
+  try{
+    const data = await gcalUpsertEvent(item);
+    item.gcalEventId = data.id;
+    ITEMS = ITEMS.map(it=>it.id===item.id?item:it);
+    saveItems();
+    flashSaved('в календаре');
+  }catch(err){
+    alert('Не удалось синхронизировать с Google Календарём: '+err.message+'\nВозможно, истёк доступ — зайдите в Настройки → Google Календарь и нажмите «Войти» ещё раз.');
+  }
+}
+function renderGcalField(){
+  const wrap = document.getElementById('gcal-field');
+  if(!wrap) return;
+  if(!SETTINGS.gcalClientId){
+    wrap.innerHTML = `<label>Google (Календарь + Диск)</label>
+      <input type="text" id="gcal-client-id" placeholder="Вставьте сюда свой Client ID" autocomplete="off" style="margin-bottom:8px;">
+      <button class="btn btn-block" id="gcal-save-id-btn">Сохранить Client ID</button>
+      <div class="hint">Client ID берётся из вашего проекта в Google Cloud Console (раздел Credentials → OAuth client ID). Один и тот же вход даёт доступ и к Календарю, и к резервной копии на Диске.</div>`;
+    wrap.querySelector('#gcal-save-id-btn').onclick = async ()=>{
+      const val = document.getElementById('gcal-client-id').value.trim();
+      if(!val){ alert('Вставьте Client ID.'); return; }
+      SETTINGS.gcalClientId = val;
+      await saveSettings();
+      GCAL_CLIENT_ID = val;
+      gcalTokenClient = null;
+      initGcalClientIfNeeded();
+      renderGcalField(); renderDriveField();
+    };
+  } else {
+    GCAL_CLIENT_ID = SETTINGS.gcalClientId;
+    initGcalClientIfNeeded();
+    const connected = gcalIsConnected();
+    const minsLeft = connected ? Math.max(0, Math.round((gcalTokenExpiry-Date.now())/60000)) : 0;
+    wrap.innerHTML = `<label>Google (Календарь + Диск)</label>
+      <div class="hint" style="margin-bottom:8px;">${connected ? 'Подключено — доступ действует ещё ~'+minsLeft+' мин.' : 'Client ID сохранён. Нажмите «Войти», чтобы разрешить доступ (потребуется повторять примерно раз в час активной работы).'}</div>
+      <button class="btn btn-block ${connected?'':'btn-accent'}" id="gcal-login-btn">${connected?'Обновить доступ':'Войти в Google'}</button>
+      <button class="btn btn-block btn-danger" id="gcal-forget-btn" style="margin-top:8px;">Отключить Google</button>`;
+    wrap.querySelector('#gcal-login-btn').onclick = gcalConnect;
+    wrap.querySelector('#gcal-forget-btn').onclick = async ()=>{
+      if(!confirm('Отключить Google? (Client ID и токен будут забыты на этом устройстве; сами файлы бэкапа на Диске не удалятся)')) return;
+      delete SETTINGS.gcalClientId; await saveSettings();
+      gcalAccessToken=null; gcalTokenClient=null; GCAL_CLIENT_ID=null;
+      renderGcalField(); renderDriveField();
+    };
+  }
+}
+
+/* =========================================================
+   GOOGLE ДИСК — бэкап
+   ========================================================= */
+const DRIVE_BACKUP_NAME='dnot-backup.json';
+let driveBackupDebounce=null;
+
+async function driveFindFileId(){
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=name%3D%27${DRIVE_BACKUP_NAME}%27+and+trashed%3Dfalse&spaces=drive&fields=files(id,name)`, {
+    headers:{ 'Authorization':'Bearer '+gcalAccessToken }
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  return (data.files && data.files[0]) ? data.files[0].id : null;
+}
+async function driveUploadBackup(silent){
+  if(!gcalIsConnected()){ if(!silent) alert('Сначала подключите Google в Настройках.'); return; }
+  const payload = JSON.stringify({tags:TAGS, items:ITEMS, exportedAt:new Date().toISOString()}, null, 2);
+  try{
+    let fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+    if(fileId){
+      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+        method:'PATCH',
+        headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'application/json' },
+        body: payload
+      });
+      if(!res.ok) throw new Error('HTTP '+res.status);
+    } else {
+      const boundary='dnotbound';
+      const metadata=JSON.stringify({name:DRIVE_BACKUP_NAME, mimeType:'application/json'});
+      const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n--${boundary}--`;
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method:'POST',
+        headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'multipart/related; boundary='+boundary },
+        body
+      });
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const data = await res.json();
+      fileId = data.id;
+    }
+    SETTINGS.driveBackupFileId = fileId;
+    SETTINGS.driveBackupAt = Date.now();
+    await saveSettings();
+    if(!silent) flashSaved('бэкап на Google Диске');
+    renderDriveField();
+  }catch(err){
+    if(!silent) alert('Не удалось сохранить на Google Диск: '+err.message+'\nВозможно, истёк доступ — зайдите в Настройки и нажмите «Войти» ещё раз.');
+  }
+}
+async function driveDownloadBackup(){
+  if(!gcalIsConnected()){ alert('Сначала подключите Google в Настройках.'); return; }
+  try{
+    const fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+    if(!fileId){ alert('На Google Диске ещё нет бэкапа от D-Not.'); return; }
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    if(!data.tags || !data.items) throw new Error('неверный формат файла на Диске');
+    const replace = confirm('ОК — заменить текущие данные бэкапом с Диска.\nОтмена — добавить записи из бэкапа к текущим (свою структуру разделов оставить).');
+    if(replace){ TAGS=data.tags; ITEMS=data.items.map(migrateItem); }
+    else{
+      const existingTagIds=new Set(TAGS.map(t=>t.id));
+      data.tags.forEach(t=>{ if(!existingTagIds.has(t.id)) TAGS.push(t); });
+      const existingItemIds=new Set(ITEMS.map(i=>i.id));
+      data.items.map(migrateItem).forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
+    }
+    SETTINGS.driveBackupFileId = fileId;
+    await saveTags(); await saveItems(); await saveSettings();
+    render();
+    alert('Восстановлено с Google Диска.');
+  }catch(err){
+    alert('Не удалось загрузить с Google Диска: '+err.message);
+  }
+}
+function scheduleAutoBackup(){
+  if(!SETTINGS.driveAutoBackup || !gcalIsConnected()) return;
+  clearTimeout(driveBackupDebounce);
+  driveBackupDebounce = setTimeout(()=>{ driveUploadBackup(true); }, 60000);
+}
+function renderDriveField(){
+  const wrap = document.getElementById('drive-field');
+  if(!wrap) return;
+  if(!SETTINGS.gcalClientId){
+    wrap.innerHTML = `<label>Бэкап на Google Диске</label><div class="hint">Сначала подключите Google (поле выше) — бэкап на Диск использует тот же вход.</div>`;
+    return;
+  }
+  const connected = gcalIsConnected();
+  const lastBackup = SETTINGS.driveBackupAt ? formatDate(SETTINGS.driveBackupAt) : 'ещё не было';
+  wrap.innerHTML = `<label>Бэкап на Google Диске</label>
+    <div class="hint" style="margin-bottom:8px;">Файл «${DRIVE_BACKUP_NAME}» в вашем Диске. Последний бэкап: ${lastBackup}. Виден с любого устройства, где вы войдёте под тем же Google-аккаунтом.</div>
+    <button class="btn btn-block ${connected?'btn-accent':''}" id="drive-upload-btn">⭱ Сохранить на Диск сейчас</button>
+    <button class="btn btn-block" id="drive-download-btn" style="margin-top:8px;">⭳ Восстановить с Диска</button>
+    <label class="checkbox-label" style="margin-top:10px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
+  wrap.querySelector('#drive-upload-btn').onclick = ()=>driveUploadBackup(false);
+  wrap.querySelector('#drive-download-btn').onclick = driveDownloadBackup;
+  wrap.querySelector('#drive-auto-toggle').onchange = async (e)=>{ SETTINGS.driveAutoBackup = e.target.checked; await saveSettings(); };
+}
+
+/* =========================================================
+   ХРАНИЛИЩЕ: IndexedDB
+   ========================================================= */
+const DB_NAME='kartoteka-db', DB_VERSION=1;
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{ const db=e.target.result; if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv'); };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function idbGet(key){ const db=await openDB(); return new Promise((resolve,reject)=>{ const tx=db.transaction('kv','readonly'); const req=tx.objectStore('kv').get(key); req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); }); }
+async function idbSet(key,value){ const db=await openDB(); return new Promise((resolve,reject)=>{ const tx=db.transaction('kv','readwrite'); tx.objectStore('kv').put(value,key); tx.oncomplete=()=>resolve(true); tx.onerror=()=>reject(tx.error); }); }
+async function idbClearAll(){ const db=await openDB(); return new Promise((resolve,reject)=>{ const tx=db.transaction('kv','readwrite'); tx.objectStore('kv').clear(); tx.oncomplete=()=>resolve(true); tx.onerror=()=>reject(tx.error); }); }
+async function sha256(text){ const enc=new TextEncoder().encode(text); const buf=await crypto.subtle.digest('SHA-256',enc); return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+
+/* =========================================================
+   ДАННЫЕ
+   ========================================================= */
+const DEFAULT_TAGS = [
+  {id:'t-0',      code:'0',      label:'Задачи',                  parent:null},
+  {id:'t-10000',  code:'10 000', label:'Проекты',                 parent:null},
+  {id:'t-20000',  code:'20 000', label:'Зона ответственности',    parent:null},
+  {id:'t-20000-1',code:'',       label:'Архив зоны ответственности', parent:'t-20000'},
+  {id:'t-20000-2',code:'',       label:'Информация',              parent:'t-20000'},
+  {id:'t-20000-2-1',code:'1.',   label:'Визитки',                 parent:'t-20000-2'},
+  {id:'t-20000-2-2',code:'2.',   label:'Адреса/ссылки',           parent:'t-20000-2'},
+  {id:'t-20000-2-3',code:'3.',   label:'Карточки дисконт/банк',   parent:'t-20000-2'},
+  {id:'t-20000-2-4',code:'4.',   label:'Расписания',              parent:'t-20000-2'},
+  {id:'t-20000-3',code:'',       label:'Личные',                  parent:'t-20000'},
+  {id:'t-20000-4',code:'',       label:'Профессиональные',        parent:'t-20000'},
+  {id:'t-30000',  code:'30 000', label:'Цели ближайшие',          parent:null},
+  {id:'t-40000',  code:'40 000', label:'Видение/Стратегия',       parent:null},
+  {id:'t-50000',  code:'50 000', label:'Предназначение/Миссия',   parent:null},
+];
+
+let TAGS=[], ITEMS=[], SETTINGS={};
+let expanded = new Set(['t-20000']);
+let selectedNodeId='inbox';
+let searchQuery='';
+
+const TYPE_META = {
+  note:{icon:'✎',label:'Заметка',color:'#8ea9ff'},
+  task:{icon:'☐',label:'Задача',color:'#e8b24d'},
+};
+
+function uid(){ return 'id-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8); }
+
+let saveTimer=null;
+function flashSaved(msg){
+  const el=document.getElementById('save-toast');
+  el.textContent = msg || 'сохранено';
+  el.classList.add('show');
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{ el.classList.remove('show'); },1400);
+}
+async function saveTags(){ try{ await idbSet('tags', JSON.stringify(TAGS)); flashSaved(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
+async function saveItems(){ try{ await idbSet('items', JSON.stringify(ITEMS)); flashSaved(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
+async function saveSettings(){ try{ await idbSet('settings', JSON.stringify(SETTINGS)); flashSaved(); }catch(e){} }
+
+function migrateItem(it){
+  if(it.kind) return it; // уже новый формат
+  const kind = it.type==='task' ? 'task' : 'note';
+  let text='', link='', photo='';
+  if(it.type==='link') link = it.content||'';
+  else if(it.type==='photo') photo = it.content||'';
+  else text = it.content||'';
+  return {
+    id: it.id, kind, title: it.title||'', text, link, photo,
+    taskDone: !!it.taskDone, tagIds: it.tagIds||[], checklist: it.checklist||[],
+    reminderAt: it.reminderAt||null, reminderNotified: !!it.reminderNotified,
+    gcalSync: !!it.gcalSync, gcalEventId: it.gcalEventId||null,
+    createdAt: it.createdAt||Date.now(), updatedAt: it.updatedAt||Date.now()
+  };
+}
+
+async function loadData(){
+  try{ const t=await idbGet('tags'); TAGS = t?JSON.parse(t):DEFAULT_TAGS.slice(); }catch(e){ TAGS=DEFAULT_TAGS.slice(); }
+  try{ const i=await idbGet('items'); ITEMS = (i?JSON.parse(i):[]).map(migrateItem); }catch(e){ ITEMS=[]; }
+  try{ const s=await idbGet('settings'); SETTINGS = s?JSON.parse(s):{}; }catch(e){ SETTINGS={}; }
+  if(SETTINGS.gcalClientId) GCAL_CLIENT_ID = SETTINGS.gcalClientId;
+  if(SETTINGS.passHash) showLockScreen(); else render();
+  setInterval(checkReminders, 30000);
+}
+
+/* =========================================================
+   ЭКРАН БЛОКИРОВКИ
+   ========================================================= */
+function showLockScreen(){
+  document.getElementById('lock-screen').classList.remove('hidden');
+  const input=document.getElementById('lock-input'), err=document.getElementById('lock-error');
+  input.value=''; err.textContent='';
+  setTimeout(()=>input.focus(),50);
+  const submit=async ()=>{
+    const hash=await sha256(input.value);
+    if(hash===SETTINGS.passHash){ document.getElementById('lock-screen').classList.add('hidden'); render(); }
+    else{ err.textContent='Неверный код.'; input.value=''; input.focus(); }
+  };
+  document.getElementById('lock-submit').onclick=submit;
+  input.onkeydown=(e)=>{ if(e.key==='Enter') submit(); };
+}
+
+/* =========================================================
+   ВСПОМОГАТЕЛЬНОЕ
+   ========================================================= */
+function childrenOf(parentId){ return TAGS.filter(t=>t.parent===parentId); }
+function tagById(id){ return TAGS.find(t=>t.id===id); }
+function itemCountForTag(tagId){ return ITEMS.filter(it=>it.tagIds.includes(tagId)).length; }
+function inboxCount(){ return ITEMS.filter(it=>it.tagIds.length===0).length; }
+function formatDate(ts){ const d=new Date(ts); return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
+function snippetOf(item){ return (item.text||'').replace(/\s+/g,' ').trim(); }
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toLocalInputValue(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+async function shareItem(item){
+  const tagsTxt = item.tagIds.map(id=>tagById(id)?.label).filter(Boolean).join(', ');
+  let text='';
+  if(item.title) text += item.title+'\n';
+  if(item.text) text += item.text+'\n';
+  if(item.link) text += item.link+'\n';
+  if(item.photo) text += '[фото прикреплено в D-Not]\n';
+  if(item.checklist && item.checklist.length){ text += item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n')+'\n'; }
+  if(tagsTxt) text += '\nМетки: '+tagsTxt;
+  text = text.trim();
+  if(navigator.share){ try{ await navigator.share({title:item.title||'Запись из D-Not', text}); }catch(e){} }
+  else if(navigator.clipboard){ try{ await navigator.clipboard.writeText(text); flashSaved('скопировано'); }catch(e){ alert('Не удалось скопировать текст.'); } }
+  else alert(text);
+}
+
+function toggleTaskDone(item){
+  const fresh = ITEMS.find(it=>it.id===item.id);
+  if(!fresh) return;
+  const meaningful = (fresh.checklist||[]).filter(c=>c.text.trim()!=='');
+  const newState = !fresh.taskDone;
+  if(meaningful.length>0){
+    fresh.checklist = fresh.checklist.map(c=> c.text.trim()==='' ? c : {...c, done:newState});
+  }
+  fresh.taskDone = newState;
+  ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
+  saveItems();
+  render();
+}
+
+/* =========================================================
+   НАПОМИНАНИЯ
+   ========================================================= */
+function checkReminders(){
+  let changed=false;
+  const now=Date.now();
+  ITEMS.forEach(it=>{
+    if(it.reminderAt && it.reminderAt<=now && !it.reminderNotified){
+      it.reminderNotified=true; changed=true;
+      notifyReminder(it);
+    }
+  });
+  if(changed) saveItems();
+}
+function notifyReminder(item){
+  const text = item.title || snippetOf(item) || 'Напоминание';
+  if('Notification' in window && Notification.permission==='granted'){
+    try{ new Notification('D-Not — напоминание', {body:text}); return; }catch(e){}
+  }
+  flashSaved('⏰ '+text);
+}
+
+/* =========================================================
+   РЕНДЕР ДЕРЕВА
+   ========================================================= */
+function processedCount(){ return ITEMS.filter(it=>it.tagIds.length>0).length; }
+function renderPinned(){
+  const wrap=document.getElementById('pinned-block');
+  wrap.innerHTML='';
+  wrap.appendChild(makeNodeRow({id:'inbox',label:'Входящие',code:'',icon:'▤',count:inboxCount(),hasChildren:false,isPinned:true}));
+  wrap.appendChild(makeNodeRow({id:'processed',label:'Обработанные',code:'',icon:'▦',count:processedCount(),hasChildren:false,isPinned:true}));
+  wrap.appendChild(makeNodeRow({id:'calendar',label:'Календарь',code:'',icon:'▥',count:null,hasChildren:false,isPinned:true}));
+}
+function makeNodeRow(opts){
+  const {id,label,code,icon,count,hasChildren,isPinned=false}=opts;
+  const row=document.createElement('div');
+  row.className='node-row'+(selectedNodeId===id?' selected':'');
+  row.dataset.id=id;
+  const chev=document.createElement('span');
+  chev.className='chevron'+(hasChildren?(expanded.has(id)?' open':''):' hidden');
+  chev.innerHTML='&#9656;';
+  if(hasChildren) chev.onclick=(e)=>{ e.stopPropagation(); toggleExpand(id); };
+  row.appendChild(chev);
+  const ic=document.createElement('span'); ic.className='node-icon'; ic.textContent=icon; row.appendChild(ic);
+  const lbl=document.createElement('span'); lbl.className='node-label'; lbl.textContent=(code?code+' — ':'')+label; row.appendChild(lbl);
+  if(!isPinned){
+    const actions=document.createElement('span'); actions.className='node-actions';
+    actions.innerHTML=`<button class="icon-btn" data-act="addchild" title="Добавить подраздел">＋</button><button class="icon-btn" data-act="rename" title="Переименовать">✎</button><button class="icon-btn" data-act="delete" title="Удалить раздел">✕</button>`;
+    actions.querySelector('[data-act=addchild]').onclick=(e)=>{ e.stopPropagation(); openTagModal({parentId:id}); };
+    actions.querySelector('[data-act=rename]').onclick=(e)=>{ e.stopPropagation(); openTagModal({editId:id}); };
+    actions.querySelector('[data-act=delete]').onclick=(e)=>{ e.stopPropagation(); deleteTag(id); };
+    row.appendChild(actions);
+  }
+  if(count!==null){ const cnt=document.createElement('span'); cnt.className='node-count mono'; cnt.textContent=count; row.appendChild(cnt); }
+  row.onclick=()=>{ selectedNodeId=id; render(); };
+  return row;
+}
+function renderTreeLevel(parentId, container, depth){
+  childrenOf(parentId).forEach(tag=>{
+    const hasChildren=childrenOf(tag.id).length>0;
+    const row=makeNodeRow({id:tag.id,label:tag.label,code:tag.code,icon:depth===0?'▸':'·',count:itemCountForTag(tag.id),hasChildren});
+    container.appendChild(row);
+    if(hasChildren){
+      const childWrap=document.createElement('div'); childWrap.className='children';
+      childWrap.style.display=expanded.has(tag.id)?'block':'none';
+      renderTreeLevel(tag.id, childWrap, depth+1);
+      container.appendChild(childWrap);
+    }
+  });
+}
+function toggleExpand(id){ if(expanded.has(id)) expanded.delete(id); else expanded.add(id); render(); }
+function renderTree(){ const scroll=document.getElementById('tree-scroll'); scroll.innerHTML=''; renderTreeLevel(null, scroll, 0); }
+
+/* =========================================================
+   ГЛАВНАЯ ОБЛАСТЬ
+   ========================================================= */
+function currentNodeInfo(){
+  if(selectedNodeId==='inbox') return {label:'Входящие',code:'',desc:'Необработанные записи — без меток'};
+  if(selectedNodeId==='processed') return {label:'Обработанные',code:'',desc:'Все записи с хотя бы одной меткой, из всех разделов сразу'};
+  if(selectedNodeId==='calendar') return {label:'Календарь',code:'',desc:'Ближайшие 14 дней из Google Calendar'};
+  const tag=tagById(selectedNodeId);
+  if(!tag) return {label:'Входящие',code:'',desc:''};
+  const path=[]; let cur=tag;
+  while(cur){ path.unshift(cur.label); cur=tagById(cur.parent); }
+  return {label:tag.label, code:tag.code, desc: path.slice(0,-1).join(' / ')||''};
+}
+function itemsForSelection(){
+  const q=searchQuery.trim().toLowerCase();
+  if(q){
+    return ITEMS.filter(it=>
+      (it.title||'').toLowerCase().includes(q) ||
+      (it.text||'').toLowerCase().includes(q) ||
+      (it.link||'').toLowerCase().includes(q) ||
+      (it.checklist||[]).some(c=>(c.text||'').toLowerCase().includes(q))
+    ).slice().sort((a,b)=>b.createdAt-a.createdAt);
+  }
+  let list;
+  if(selectedNodeId==='inbox') list=ITEMS.filter(it=>it.tagIds.length===0);
+  else if(selectedNodeId==='processed') list=ITEMS.filter(it=>it.tagIds.length>0);
+  else list=ITEMS.filter(it=>it.tagIds.includes(selectedNodeId));
+  return list.slice().sort((a,b)=>b.createdAt-a.createdAt);
+}
+function renderHeader(){
+  const codeEl=document.getElementById('main-code');
+  if(searchQuery.trim()){
+    codeEl.style.display='none';
+    document.getElementById('main-title').textContent='Результаты поиска';
+    document.getElementById('main-sub').textContent='«'+searchQuery.trim()+'»';
+    return;
+  }
+  const info=currentNodeInfo();
+  codeEl.textContent=info.code||''; codeEl.style.display=info.code?'inline-block':'none';
+  document.getElementById('main-title').textContent=info.label;
+  document.getElementById('main-sub').textContent=info.desc;
+}
+function domainOf(url){ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return url.slice(0,30); } }
+
+function renderList(){
+  const wrap=document.getElementById('item-list');
+  if(selectedNodeId==='calendar' && !searchQuery.trim()){
+    renderCalendarAgenda();
+    return;
+  }
+  wrap.innerHTML='';
+  const list=itemsForSelection();
+  const searching=!!searchQuery.trim();
+
+  if(list.length===0){
+    const es=document.createElement('div'); es.className='empty-state';
+    if(searching) es.innerHTML=`<div class="glyph">∅</div><div class="msg">Ничего не найдено по запросу «${escapeHtml(searchQuery.trim())}».</div>`;
+    else if(selectedNodeId==='inbox') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Входящие пусты.<br>Нажмите «＋ Добавить», чтобы закинуть сюда заметку или задачу — а разобрать по разделам можно позже (на ПК — можно просто перетащить карточку на нужный раздел слева).</div>`;
+    else if(selectedNodeId==='processed') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Пока ничего не обработано — ни одна запись ещё не получила метку.</div>`;
+    else es.innerHTML=`<div class="glyph">∅</div><div class="msg">В этом разделе пока нет записей.<br>Прикрепите к записи из «Входящие» эту метку — и она появится здесь. На ПК можно просто перетащить карточку сюда.</div>`;
+    wrap.appendChild(es);
+    return;
+  }
+
+  list.forEach(item=>{
+    const meta=TYPE_META[item.kind] || TYPE_META.note;
+    const card=document.createElement('div'); card.className='card';
+    let thumb='';
+    if(item.kind==='task') thumb=`<button type="button" class="task-check-btn ${item.taskDone?'done':''}" title="Отметить выполненной">${item.taskDone?'✓':''}</button>`;
+    else if(item.photo) thumb=`<img class="card-thumb" src="${item.photo}">`;
+    else thumb=`<div class="card-type-icon" style="background:${meta.color}22; color:${meta.color};">${meta.icon}</div>`;
+
+    let tagsHtml = item.tagIds.map(tid=>{ const t=tagById(tid); return t?`<span class="tag-chip">${escapeHtml(t.label)}</span>`:''; }).join('');
+    if(searching && item.tagIds.length===0) tagsHtml += `<span class="tag-chip">Входящие</span>`;
+    if(item.link) tagsHtml += `<span class="tag-chip">🔗 ${escapeHtml(domainOf(item.link))}</span>`;
+    if(item.photo) tagsHtml += `<span class="tag-chip">🖼 фото</span>`;
+    if(item.checklist && item.checklist.length){
+      const done=item.checklist.filter(c=>c.done).length;
+      tagsHtml += `<span class="tag-chip">☑ ${done}/${item.checklist.length}</span>`;
+    }
+    if(item.reminderAt){
+      const overdue=item.reminderAt<Date.now();
+      tagsHtml += `<span class="tag-chip" style="color:${overdue?'var(--gold)':'var(--muted)'};">⏰ ${formatDate(item.reminderAt)}</span>`;
+    }
+
+    const titleText = item.title || (item.text||'').slice(0,60) || (item.link?domainOf(item.link):'') || '(без названия)';
+    card.innerHTML = `
+      ${thumb}
+      <div class="card-body">
+        <div class="card-top">
+          <div class="card-title ${item.kind==='task'&&item.taskDone?'done':''}">${escapeHtml(titleText)}</div>
+          <div class="card-date mono">${formatDate(item.createdAt)}</div>
+        </div>
+        ${item.title && item.text ? `<div class="card-snippet">${escapeHtml(snippetOf(item))}</div>` : ''}
+        <div class="card-tags">${tagsHtml}<button type="button" class="share-btn" title="Поделиться">⇪ Поделиться</button></div>
+      </div>
+    `;
+    if(item.kind==='task'){
+      card.querySelector('.task-check-btn').onclick=(e)=>{ e.stopPropagation(); card.dataset.justDragged='1'; toggleTaskDone(item); };
+    }
+    card.querySelector('.share-btn').onclick=(e)=>{ e.stopPropagation(); shareItem(item); };
+    card.onclick=()=>{ if(card.dataset.justDragged){ delete card.dataset.justDragged; return; } openItemModal(item); };
+    makeCardDraggable(card, item);
+    wrap.appendChild(card);
+  });
+}
+
+/* =========================================================
+   КАЛЕНДАРЬ — список ближайших событий Google Calendar
+   ========================================================= */
+async function renderCalendarAgenda(){
+  const wrap=document.getElementById('item-list');
+  if(!SETTINGS.gcalClientId){
+    wrap.innerHTML='';
+    const es=document.createElement('div'); es.className='empty-state';
+    es.innerHTML=`<div class="glyph">📅</div><div class="msg">Чтобы видеть события Google Calendar здесь, сначала подключите Google в Настройках.</div>`;
+    wrap.appendChild(es);
+    return;
+  }
+  if(!gcalIsConnected()){
+    wrap.innerHTML='';
+    const es=document.createElement('div'); es.className='empty-state';
+    es.innerHTML=`<div class="glyph">📅</div><div class="msg">Доступ к Google истёк или ещё не выдан за эту сессию.</div>`;
+    wrap.appendChild(es);
+    const btn=document.createElement('button'); btn.className='btn btn-accent'; btn.style.marginTop='12px'; btn.textContent='Войти в Google';
+    btn.onclick=()=>{ gcalConnect(); setTimeout(()=>{ if(selectedNodeId==='calendar') renderCalendarAgenda(); }, 1500); };
+    es.appendChild(btn);
+    return;
+  }
+  wrap.innerHTML = `<div class="hint" style="padding:4px 0 14px 0;">Загрузка событий…</div>`;
+  try{
+    const events = await fetchUpcomingEvents();
+    renderAgendaList(events);
+  }catch(err){
+    wrap.innerHTML='';
+    const es=document.createElement('div'); es.className='empty-state';
+    es.innerHTML=`<div class="glyph">⚠</div><div class="msg">Не удалось загрузить события: ${escapeHtml(err.message)}</div>`;
+    wrap.appendChild(es);
+  }
+}
+async function fetchUpcomingEvents(){
+  const timeMin=new Date().toISOString();
+  const timeMax=new Date(Date.now()+14*24*3600*1000).toISOString();
+  const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`;
+  const res=await fetch(url, {headers:{'Authorization':'Bearer '+gcalAccessToken}});
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data=await res.json();
+  return data.items||[];
+}
+function renderAgendaList(events){
+  const wrap=document.getElementById('item-list');
+  wrap.innerHTML='';
+  const top=document.createElement('div');
+  top.style.cssText='display:flex; justify-content:flex-end; margin-bottom:10px;';
+  top.innerHTML=`<button class="btn btn-small btn-ghost" id="agenda-refresh-btn">⟳ Обновить</button>`;
+  wrap.appendChild(top);
+  top.querySelector('#agenda-refresh-btn').onclick=renderCalendarAgenda;
+
+  if(!events.length){
+    const es=document.createElement('div'); es.className='empty-state';
+    es.innerHTML=`<div class="glyph">∅</div><div class="msg">На ближайшие 14 дней в Google Calendar событий нет.</div>`;
+    wrap.appendChild(es);
+    return;
+  }
+  let lastDay='';
+  events.forEach(ev=>{
+    const startStr = (ev.start && (ev.start.dateTime||ev.start.date)) || null;
+    if(!startStr) return;
+    const start=new Date(startStr);
+    const dayKey = start.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'});
+    if(dayKey!==lastDay){
+      lastDay=dayKey;
+      const dayHead=document.createElement('div');
+      dayHead.className='section-label';
+      dayHead.style.cssText='padding:12px 2px 4px 2px; font-size:11px;';
+      dayHead.textContent = start.toLocaleDateString('ru-RU',{weekday:'long', day:'2-digit', month:'long'});
+      wrap.appendChild(dayHead);
+    }
+    const timeStr = ev.start.dateTime ? start.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) : 'весь день';
+    const card=document.createElement('div'); card.className='card';
+    card.style.cursor = ev.htmlLink ? 'pointer' : 'default';
+    card.innerHTML = `
+      <div class="card-type-icon" style="background:#4fbdae22; color:var(--teal);">📅</div>
+      <div class="card-body">
+        <div class="card-top">
+          <div class="card-title">${escapeHtml(ev.summary||'(без названия)')}</div>
+          <div class="card-date mono">${timeStr}</div>
+        </div>
+        ${ev.location ? `<div class="card-snippet">${escapeHtml(ev.location)}</div>` : ''}
+      </div>`;
+    if(ev.htmlLink) card.onclick=()=>window.open(ev.htmlLink,'_blank');
+    wrap.appendChild(card);
+  });
+}
+
+function render(){
+  renderPinned(); renderTree(); renderHeader(); renderList();
+  document.getElementById('new-item-btn').classList.toggle('hidden', selectedNodeId==='calendar' && !searchQuery.trim());
+}
+
+/* =========================================================
+   ПЕРЕТАСКИВАНИЕ КАРТОЧЕК НА РАЗДЕЛЫ (только на широких экранах — ПК)
+   ========================================================= */
+function makeCardDraggable(card, item){
+  card.addEventListener('pointerdown', (e)=>{
+    if(window.innerWidth <= 720) return; // на телефоне дерево и список не видны одновременно
+    if(e.pointerType==='mouse' && e.button!==0) return;
+    const startX=e.clientX, startY=e.clientY;
+    let started=false, ghost=null, currentTargetId=null;
+
+    function onMove(ev){
+      const dx=ev.clientX-startX, dy=ev.clientY-startY;
+      if(!started && Math.hypot(dx,dy)>10){
+        started=true;
+        ghost=document.createElement('div');
+        ghost.className='drag-ghost';
+        ghost.textContent='✎ '+((item.title||item.text||item.link||'запись').slice(0,36));
+        document.body.appendChild(ghost);
+        document.body.classList.add('dragging-active');
+      }
+      if(started){
+        ghost.style.left=(ev.clientX+14)+'px';
+        ghost.style.top=(ev.clientY+10)+'px';
+        document.querySelectorAll('.node-row.drop-hover').forEach(el=>el.classList.remove('drop-hover'));
+        const el=document.elementFromPoint(ev.clientX, ev.clientY);
+        const rowEl = el ? el.closest('.node-row') : null;
+        currentTargetId = rowEl ? rowEl.dataset.id : null;
+        if(rowEl && rowEl.dataset.id!=='processed') rowEl.classList.add('drop-hover');
+        else currentTargetId = (rowEl && rowEl.dataset.id==='processed') ? null : currentTargetId;
+      }
+    }
+    function onUp(){
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.querySelectorAll('.node-row.drop-hover').forEach(el=>el.classList.remove('drop-hover'));
+      if(ghost) ghost.remove();
+      document.body.classList.remove('dragging-active');
+      if(started){
+        card.dataset.justDragged='1';
+        if(currentTargetId) applyDragTag(item, currentTargetId);
+      }
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+}
+function applyDragTag(item, targetId){
+  const fresh = ITEMS.find(it=>it.id===item.id);
+  if(!fresh) return;
+  if(targetId==='inbox'){
+    if(fresh.tagIds.length===0) return;
+    fresh.tagIds=[];
+    flashSaved('во Входящих');
+  } else {
+    const tag=tagById(targetId);
+    if(!tag) return;
+    if(fresh.tagIds.includes(targetId)){ flashSaved('уже там'); return; }
+    fresh.tagIds=[...fresh.tagIds, targetId];
+    flashSaved('добавлено: '+tag.label);
+  }
+  ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
+  saveItems();
+  render();
+}
+
+/* =========================================================
+   МОДАЛКА: ЗАПИСЬ (статичная разметка, только показ/скрытие)
+   ========================================================= */
+let editingItemId=null;
+let currentType='note';
+let modalTagIds=new Set();
+let modalPhotoData='';
+let currentChecklist=[];
+
+function setModalType(type){
+  currentType=type;
+  document.getElementById('taskdone-wrap').classList.toggle('hidden', type!=='task');
+  document.querySelectorAll('#type-picker .type-opt').forEach(o=>o.classList.toggle('active', o.dataset.type===type));
+  document.getElementById('content-note-label').textContent = type==='task' ? 'Текст задачи' : 'Текст';
+  updateTaskDoneFromChecklist();
+}
+function updateTaskDoneFromChecklist(){
+  const meaningful = currentChecklist.filter(c=>c.text.trim()!=='');
+  const taskDoneEl = document.getElementById('f-taskdone');
+  const hint = document.getElementById('taskdone-hint');
+  if(currentType==='task' && meaningful.length>0){
+    taskDoneEl.checked = meaningful.every(c=>c.done);
+    taskDoneEl.disabled = true;
+    hint.textContent = '(определяется по чек-листу ниже)';
+  } else {
+    taskDoneEl.disabled = false;
+    hint.textContent = '';
+  }
+}
+function setLinkAttachmentVisible(show){
+  document.getElementById('content-link-wrap').classList.toggle('hidden', !show);
+  document.getElementById('add-link-btn').classList.toggle('hidden', show);
+  if(!show) document.getElementById('f-link').value='';
+}
+function setPhotoAttachmentVisible(show){
+  document.getElementById('content-photo-wrap').classList.toggle('hidden', !show);
+  document.getElementById('add-photo-btn').classList.toggle('hidden', show);
+  if(!show){
+    modalPhotoData='';
+    const prev=document.getElementById('f-preview'); prev.src=''; prev.classList.add('hidden');
+    document.getElementById('remove-photo-btn').classList.add('hidden');
+  }
+}
+
+function renderChecklist(){
+  const box=document.getElementById('checklist-items');
+  box.innerHTML='';
+  currentChecklist.forEach((ci,idx)=>{
+    const row=document.createElement('div'); row.className='checklist-row';
+    row.innerHTML=`<input type="checkbox" ${ci.done?'checked':''}><input type="text" value="${escapeHtml(ci.text)}" placeholder="Пункт…" class="${ci.done?'done':''}"><button type="button" class="icon-btn">✕</button>`;
+    const [chk, txt, rm] = row.children;
+    chk.onchange=(e)=>{ ci.done=e.target.checked; txt.classList.toggle('done', ci.done); updateTaskDoneFromChecklist(); };
+    txt.oninput=(e)=>{ ci.text=e.target.value; };
+    rm.onclick=()=>{ currentChecklist.splice(idx,1); renderChecklist(); updateTaskDoneFromChecklist(); };
+    box.appendChild(row);
+  });
+  updateTaskDoneFromChecklist();
+}
+function addChecklistItem(){
+  currentChecklist.push({id:uid(), text:'', done:false});
+  renderChecklist();
+  const rows=document.querySelectorAll('#checklist-items input[type=text]');
+  if(rows.length) rows[rows.length-1].focus();
+}
+
+function renderTagPicker(){
+  const box=document.getElementById('tagpick-tree');
+  box.innerHTML='';
+  function walk(parentId, depth){
+    childrenOf(parentId).forEach(t=>{
+      const row=document.createElement('div'); row.className='tagpick-row'; row.style.marginLeft=(depth*14)+'px';
+      row.innerHTML=`<input type="checkbox" ${modalTagIds.has(t.id)?'checked':''}><span class="tagpick-label">${escapeHtml(t.label)}</span>${t.code?`<span class="tagpick-code mono">${escapeHtml(t.code)}</span>`:''}`;
+      row.querySelector('input').onchange=(e)=>{ if(e.target.checked) modalTagIds.add(t.id); else modalTagIds.delete(t.id); renderCurrentTags(); };
+      box.appendChild(row);
+      walk(t.id, depth+1);
+    });
+  }
+  walk(null,0);
+}
+function renderCurrentTags(){
+  const box=document.getElementById('detail-tags-current');
+  box.innerHTML = modalTagIds.size ? '' : '<span style="color:var(--dim); font-size:12px;">без меток — останется во «Входящих»</span>';
+  modalTagIds.forEach(tid=>{
+    const t=tagById(tid); if(!t) return;
+    const chip=document.createElement('span'); chip.className='tag-chip'; chip.style.cursor='pointer';
+    chip.innerHTML=`${escapeHtml(t.label)} ✕`;
+    chip.onclick=()=>{ modalTagIds.delete(tid); renderTagPicker(); renderCurrentTags(); };
+    box.appendChild(chip);
+  });
+}
+
+function openItemModal(item){
+  editingItemId = item ? item.id : null;
+  document.getElementById('item-modal-title').textContent = item ? 'Запись' : 'Новая запись';
+  document.getElementById('delete-item-btn').classList.toggle('hidden', !item);
+  document.getElementById('share-item-btn').classList.toggle('hidden', !item);
+
+  document.getElementById('f-title').value = item ? item.title : '';
+  document.getElementById('f-content').value = item ? (item.text||'') : '';
+
+  document.getElementById('f-link').value = item ? (item.link||'') : '';
+  setLinkAttachmentVisible(!!(item && item.link));
+
+  modalPhotoData = item ? (item.photo||'') : '';
+  const preview = document.getElementById('f-preview');
+  if(modalPhotoData){ preview.src=modalPhotoData; preview.classList.remove('hidden'); document.getElementById('remove-photo-btn').classList.remove('hidden'); }
+  else{ preview.src=''; preview.classList.add('hidden'); document.getElementById('remove-photo-btn').classList.add('hidden'); }
+  setPhotoAttachmentVisible(!!modalPhotoData);
+  document.getElementById('add-link-btn').classList.remove('hidden');
+  document.getElementById('add-photo-btn').classList.remove('hidden');
+  if(item && item.link) document.getElementById('add-link-btn').classList.add('hidden');
+  if(item && item.photo) document.getElementById('add-photo-btn').classList.add('hidden');
+
+  document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
+  document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
+  document.getElementById('f-gcal-sync').checked = item ? !!item.gcalSync : false;
+  updateGcalCheckboxVisibility();
+
+  modalTagIds = new Set(item ? item.tagIds : []);
+  currentChecklist = item && item.checklist ? item.checklist.map(c=>({...c})) : [];
+
+  setModalType(item ? item.kind : 'note');
+  renderTagPicker(); renderCurrentTags(); renderChecklist();
+
+  document.getElementById('item-modal-overlay').classList.remove('hidden');
+}
+function closeItemModal(){ document.getElementById('item-modal-overlay').classList.add('hidden'); editingItemId=null; }
+
+document.querySelectorAll('#type-picker .type-opt').forEach(opt=>{
+  opt.onclick=()=>{ setModalType(opt.dataset.type); };
+});
+
+document.getElementById('add-link-btn').onclick=()=>{ setLinkAttachmentVisible(true); setTimeout(()=>document.getElementById('f-link').focus(),0); };
+document.getElementById('remove-link-btn').onclick=()=>setLinkAttachmentVisible(false);
+document.getElementById('add-photo-btn').onclick=()=>{ setPhotoAttachmentVisible(true); };
+document.getElementById('remove-photo-btn').onclick=()=>setPhotoAttachmentVisible(false);
+
+document.getElementById('file-drop').onclick=()=>document.getElementById('f-file').click();
+document.getElementById('f-file').onchange=(e)=>{
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=(ev)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const canvas=document.createElement('canvas'); const maxDim=1100;
+      let w=img.width, h=img.height;
+      if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+      canvas.width=w; canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      modalPhotoData=canvas.toDataURL('image/jpeg',0.72);
+      const prev=document.getElementById('f-preview'); prev.src=modalPhotoData; prev.classList.remove('hidden');
+      document.getElementById('remove-photo-btn').classList.remove('hidden');
+    };
+    img.src=ev.target.result;
+  };
+  reader.readAsDataURL(file);
+};
+
+document.getElementById('insert-bullet-btn').onclick=()=>insertAtCursor(document.getElementById('f-content'),'• ');
+document.getElementById('insert-number-btn').onclick=()=>{
+  const ta=document.getElementById('f-content');
+  const lines=ta.value.split('\n').filter(l=>/^\d+\.\s/.test(l));
+  insertAtCursor(ta, (lines.length+1)+'. ');
+};
+document.getElementById('insert-checklist-btn').onclick=()=>{
+  addChecklistItem();
+  document.getElementById('checklist-wrap').scrollIntoView({behavior:'smooth', block:'nearest'});
+};
+function insertAtCursor(textarea, text){
+  const start=textarea.selectionStart, end=textarea.selectionEnd;
+  const before=textarea.value.substring(0,start), after=textarea.value.substring(end);
+  const needsNl = before.length>0 && !before.endsWith('\n');
+  const insert=(needsNl?'\n':'')+text;
+  textarea.value = before+insert+after;
+  const pos=(before+insert).length;
+  textarea.focus(); textarea.selectionStart=textarea.selectionEnd=pos;
+}
+document.getElementById('f-content').addEventListener('keydown', (e)=>{
+  if(e.key!=='Enter' || e.shiftKey) return;
+  const ta=e.target;
+  const value=ta.value, pos=ta.selectionStart;
+  const lineStart = value.lastIndexOf('\n', pos-1)+1;
+  const currentLine = value.substring(lineStart, pos);
+  const bulletMatch = currentLine.match(/^(\s*)•\s(.*)$/);
+  const numMatch = currentLine.match(/^(\s*)(\d+)\.\s(.*)$/);
+  if(bulletMatch){
+    e.preventDefault();
+    if(bulletMatch[2].trim()===''){
+      ta.value = value.substring(0,lineStart)+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=lineStart;
+    } else {
+      const insert='\n'+bulletMatch[1]+'• ';
+      ta.value = value.substring(0,pos)+insert+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=pos+insert.length;
+    }
+  } else if(numMatch){
+    e.preventDefault();
+    if(numMatch[3].trim()===''){
+      ta.value = value.substring(0,lineStart)+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=lineStart;
+    } else {
+      const insert='\n'+numMatch[1]+(parseInt(numMatch[2],10)+1)+'. ';
+      ta.value = value.substring(0,pos)+insert+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=pos+insert.length;
+    }
+  }
+});
+
+document.getElementById('add-checklist-item-btn').onclick=addChecklistItem;
+
+document.getElementById('f-reminder').addEventListener('change', ()=>{
+  if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+});
+function updateGcalCheckboxVisibility(){
+  const hasReminder = !!document.getElementById('f-reminder').value;
+  document.getElementById('gcal-sync-wrap').classList.toggle('hidden', !hasReminder);
+  if(!hasReminder) document.getElementById('f-gcal-sync').checked = false;
+}
+document.getElementById('f-reminder').addEventListener('input', updateGcalCheckboxVisibility);
+
+document.getElementById('item-modal-close').onclick=closeItemModal;
+document.getElementById('cancel-item-btn').onclick=closeItemModal;
+document.getElementById('item-modal-overlay').onclick=(e)=>{ if(e.target.id==='item-modal-overlay') closeItemModal(); };
+document.getElementById('new-item-btn').onclick=()=>openItemModal(null);
+document.getElementById('share-item-btn').onclick=()=>{ const it=ITEMS.find(i=>i.id===editingItemId); if(it) shareItem(it); };
+
+document.getElementById('delete-item-btn').onclick=()=>{
+  if(!editingItemId) return;
+  if(confirm('Удалить эту запись безвозвратно?')){
+    const it = ITEMS.find(i=>i.id===editingItemId);
+    if(it && it.gcalEventId && gcalIsConnected()) gcalDeleteEvent(it.gcalEventId).catch(()=>{});
+    ITEMS=ITEMS.filter(it=>it.id!==editingItemId);
+    saveItems(); closeItemModal(); render();
+  }
+};
+
+document.getElementById('save-item-btn').onclick=()=>{
+  const title=document.getElementById('f-title').value.trim();
+  const text=document.getElementById('f-content').value.trim();
+  const link=document.getElementById('content-link-wrap').classList.contains('hidden') ? '' : document.getElementById('f-link').value.trim();
+  const photo=document.getElementById('content-photo-wrap').classList.contains('hidden') ? '' : modalPhotoData;
+
+  if(!title && !text && !link && !photo){ alert('Добавьте хотя бы заголовок, текст, ссылку или фото.'); return; }
+  if(!document.getElementById('content-photo-wrap').classList.contains('hidden') && !photo){ alert('Выберите изображение или уберите вложение «Фото».'); return; }
+  if(!document.getElementById('content-link-wrap').classList.contains('hidden') && !link){ alert('Впишите ссылку или уберите вложение «Ссылка».'); return; }
+
+  const reminderVal=document.getElementById('f-reminder').value;
+  const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
+  const cleanChecklist = currentChecklist.filter(c=>c.text.trim()!=='').map(c=>({id:c.id,text:c.text.trim(),done:!!c.done}));
+  const gcalSync = !document.getElementById('gcal-sync-wrap').classList.contains('hidden') && document.getElementById('f-gcal-sync').checked;
+
+  const base = editingItemId ? ITEMS.find(it=>it.id===editingItemId) : null;
+  const newItem = {
+    id: editingItemId || uid(),
+    kind: currentType, title, text, link, photo,
+    taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
+    tagIds: Array.from(modalTagIds),
+    checklist: cleanChecklist,
+    reminderAt,
+    reminderNotified: (base && base.reminderAt===reminderAt) ? !!base.reminderNotified : false,
+    gcalSync,
+    gcalEventId: base ? base.gcalEventId : null,
+    createdAt: base ? base.createdAt : Date.now(),
+    updatedAt: Date.now()
+  };
+  if(editingItemId) ITEMS = ITEMS.map(it=>it.id===editingItemId ? newItem : it);
+  else ITEMS.push(newItem);
+  saveItems();
+  closeItemModal();
+  render();
+  if(reminderAt) syncItemToCalendar(newItem, gcalSync);
+};
+
+/* =========================================================
+   МОДАЛКА: ТЕГ
+   ========================================================= */
+let tagModalParentId=null, tagModalEditId=null;
+function openTagModal({parentId=null, editId=null}={}){
+  tagModalParentId=parentId; tagModalEditId=editId;
+  const existing = editId ? tagById(editId) : null;
+  document.getElementById('tag-modal-title').textContent = editId ? 'Редактировать раздел' : 'Новый подраздел';
+  document.getElementById('tag-label').value = existing ? existing.label : '';
+  document.getElementById('tag-code').value = existing ? existing.code : '';
+  document.getElementById('tag-modal-hint').textContent = (!editId && parentId) ? `Будет добавлен как подраздел «${tagById(parentId).label}».` : '';
+  document.getElementById('tag-modal-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('tag-label').focus(),50);
+}
+function closeTagModal(){ document.getElementById('tag-modal-overlay').classList.add('hidden'); }
+document.getElementById('tag-modal-close').onclick=closeTagModal;
+document.getElementById('tag-modal-cancel').onclick=closeTagModal;
+document.getElementById('tag-modal-overlay').onclick=(e)=>{ if(e.target.id==='tag-modal-overlay') closeTagModal(); };
+document.getElementById('tag-modal-save').onclick=()=>{
+  const label=document.getElementById('tag-label').value.trim();
+  const code=document.getElementById('tag-code').value.trim();
+  if(!label){ alert('Введите название раздела.'); return; }
+  if(tagModalEditId){ TAGS=TAGS.map(t=>t.id===tagModalEditId?{...t,label,code}:t); }
+  else{ const id=uid(); TAGS.push({id,code,label,parent:tagModalParentId}); expanded.add(tagModalParentId); }
+  saveTags(); closeTagModal(); render();
+};
+
+function deleteTag(tagId){
+  const tag=tagById(tagId); if(!tag) return;
+  if(childrenOf(tagId).length>0){ alert('Сначала удалите или перенесите подразделы внутри этого раздела.'); return; }
+  const count=itemCountForTag(tagId);
+  const msg = count>0
+    ? `Удалить раздел «${tag.label}»? ${count} запис${count===1?'ь':'и/ей'} потеряют эту метку (сама запись не удалится; если меток больше не останется — она вернётся во «Входящие»).`
+    : `Удалить пустой раздел «${tag.label}»?`;
+  if(!confirm(msg)) return;
+  TAGS=TAGS.filter(t=>t.id!==tagId);
+  ITEMS=ITEMS.map(it=> it.tagIds.includes(tagId) ? {...it, tagIds:it.tagIds.filter(id=>id!==tagId)} : it);
+  if(selectedNodeId===tagId) selectedNodeId='inbox';
+  saveTags(); saveItems(); render();
+}
+
+/* =========================================================
+   ЭКСПОРТ / ИМПОРТ
+   ========================================================= */
+function exportData(){
+  const data={tags:TAGS, items:ITEMS, exportedAt:new Date().toISOString()};
+  const blob=new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='dnot-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function importDataFromFile(file){
+  const reader=new FileReader();
+  reader.onload=async (e)=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.tags||!data.items) throw new Error('неверный формат файла');
+      const replace = confirm('ОК — заменить все текущие данные файлом.\nОтмена — добавить записи из файла к текущим (свою структуру разделов оставить).');
+      if(replace){ TAGS=data.tags; ITEMS=data.items; }
+      else{
+        const existingTagIds=new Set(TAGS.map(t=>t.id));
+        data.tags.forEach(t=>{ if(!existingTagIds.has(t.id)) TAGS.push(t); });
+        const existingItemIds=new Set(ITEMS.map(i=>i.id));
+        data.items.forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
+      }
+      await saveTags(); await saveItems();
+      alert('Импорт завершён.');
+      render();
+    }catch(err){ alert('Не удалось прочитать файл: '+err.message); }
+  };
+  reader.readAsText(file);
+}
+
+/* =========================================================
+   НАСТРОЙКИ
+   ========================================================= */
+function renderPassField(){
+  const wrap=document.getElementById('pass-field');
+  if(SETTINGS.passHash){
+    wrap.innerHTML = `<label>Код доступа</label>
+      <div class="hint" style="margin-bottom:8px;">Код установлен — при открытии приложения потребуется вводить его.</div>
+      <button class="btn btn-block btn-danger" id="remove-pass-btn">Убрать код доступа</button>`;
+    wrap.querySelector('#remove-pass-btn').onclick=async ()=>{
+      if(!confirm('Убрать код доступа?')) return;
+      delete SETTINGS.passHash; await saveSettings(); renderPassField();
+    };
+  } else {
+    wrap.innerHTML = `<label>Код доступа</label>
+      <input type="password" id="new-pass" placeholder="Придумайте код (мин. 4 символа)" autocomplete="new-password" style="margin-bottom:8px;">
+      <button class="btn btn-block btn-accent" id="set-pass-btn">Установить код</button>
+      <div class="hint">Код хранится только на этом устройстве в зашифрованном виде и защищает от случайного открытия приложения посторонним человеком, у которого есть физический доступ к устройству.</div>`;
+    wrap.querySelector('#set-pass-btn').onclick=async ()=>{
+      const val=document.getElementById('new-pass').value;
+      if(val.length<4){ alert('Код должен быть не короче 4 символов.'); return; }
+      SETTINGS.passHash=await sha256(val); await saveSettings(); renderPassField();
+      alert('Код доступа установлен.');
+    };
+  }
+}
+function openSettingsModal(){ renderPassField(); renderGcalField(); renderDriveField(); document.getElementById('settings-modal-overlay').classList.remove('hidden'); }
+function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); }
+document.getElementById('settings-btn').onclick=openSettingsModal;
+document.getElementById('wipe-device-btn').onclick=async ()=>{
+  if(!confirm('Это сотрёт ВСЕ заметки, задачи и настройки на этом устройстве (в этом браузере). Бэкап на Google Диске и события в Google Календаре останутся нетронутыми.\n\nПродолжить?')) return;
+  if(!confirm('Точно? Локальную копию на этом устройстве потом не вернуть — только повторным восстановлением с Google Диска.')) return;
+  try{
+    await idbClearAll();
+    location.reload();
+  }catch(e){
+    alert('Не удалось очистить: '+e.message);
+  }
+};
+document.getElementById('settings-modal-close').onclick=closeSettingsModal;
+document.getElementById('settings-modal-close2').onclick=closeSettingsModal;
+document.getElementById('settings-modal-overlay').onclick=(e)=>{ if(e.target.id==='settings-modal-overlay') closeSettingsModal(); };
+document.getElementById('export-btn').onclick=exportData;
+document.getElementById('import-btn').onclick=()=>document.getElementById('import-file').click();
+document.getElementById('import-file').onchange=(e)=>{ const f=e.target.files[0]; if(f) importDataFromFile(f); e.target.value=''; };
+
+/* =========================================================
+   ПОИСК / РЕСАЙЗ / МОБИЛЬНОЕ МЕНЮ
+   ========================================================= */
+document.getElementById('search-input').oninput=(e)=>{ searchQuery=e.target.value; renderHeader(); renderList(); };
+
+(function(){
+  const resizer=document.getElementById('resizer'), sidebar=document.getElementById('sidebar');
+  let dragging=false;
+  resizer.addEventListener('mousedown', ()=>{ dragging=true; resizer.classList.add('active'); document.body.style.userSelect='none'; });
+  window.addEventListener('mousemove', (e)=>{ if(!dragging) return; const w=Math.min(Math.max(e.clientX,230), window.innerWidth*0.6); sidebar.style.width=w+'px'; });
+  window.addEventListener('mouseup', ()=>{ dragging=false; resizer.classList.remove('active'); document.body.style.userSelect=''; });
+})();
+
+const mobileBtn=document.getElementById('mobile-menu-btn');
+mobileBtn.onclick=()=>{ document.getElementById('sidebar').classList.toggle('mobile-open'); };
+document.getElementById('item-list').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.remove('mobile-open'); });
+
+loadData();
+</script>
+</body>
+</html>
