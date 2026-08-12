@@ -506,6 +506,9 @@ function renderGcalField(){
     wrap.querySelector('#gcal-save-id-btn').onclick = async ()=>{
       const val = document.getElementById('gcal-client-id').value.trim();
       if(!val){ alert('Вставьте Client ID.'); return; }
+      if(!/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/i.test(val)){
+        if(!confirm('Это не похоже на настоящий Client ID (обычно он выглядит как «числа-буквы.apps.googleusercontent.com»). Возможно, при копировании часть текста потерялась.\n\nВсё равно сохранить как есть?')) return;
+      }
       SETTINGS.gcalClientId = val;
       await saveSettings();
       GCAL_CLIENT_ID = val;
@@ -520,6 +523,7 @@ function renderGcalField(){
     const minsLeft = connected ? Math.max(0, Math.round((gcalTokenExpiry-Date.now())/60000)) : 0;
     wrap.innerHTML = `<label>Google (Календарь + Диск)</label>
       <div class="hint" style="margin-bottom:8px;">${connected ? 'Подключено — доступ действует ещё ~'+minsLeft+' мин.' : 'Client ID сохранён. Нажмите «Войти», чтобы разрешить доступ (потребуется повторять примерно раз в час активной работы).'}</div>
+      <div class="hint mono" style="margin-bottom:8px; word-break:break-all;">ID: ${escapeHtml(SETTINGS.gcalClientId)}</div>
       <button class="btn btn-block ${connected?'':'btn-accent'}" id="gcal-login-btn">${connected?'Обновить доступ':'Войти в Google'}</button>
       <button class="btn btn-block btn-danger" id="gcal-forget-btn" style="margin-top:8px;">Отключить Google</button>`;
     wrap.querySelector('#gcal-login-btn').onclick = gcalConnect;
@@ -738,6 +742,23 @@ async function loadData(){
   if(SETTINGS.gcalClientId) GCAL_CLIENT_ID = SETTINGS.gcalClientId;
   if(SETTINGS.passHash) showLockScreen(); else render();
   setInterval(checkReminders, 30000);
+  attemptSilentGoogleReconnect();
+}
+function attemptSilentGoogleReconnect(){
+  if(!SETTINGS.gcalClientId) return;
+  let tries=0;
+  const tryInit=()=>{
+    tries++;
+    if(!window.google || !google.accounts || !google.accounts.oauth2){
+      if(tries<20) setTimeout(tryInit, 300);
+      return;
+    }
+    initGcalClientIfNeeded();
+    if(gcalTokenClient){
+      try{ gcalTokenClient.requestAccessToken({prompt:''}); }catch(e){}
+    }
+  };
+  tryInit();
 }
 
 /* =========================================================
