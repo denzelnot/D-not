@@ -288,22 +288,24 @@
         </div>
 
         <div class="hidden" id="content-photo-wrap" style="margin-top:10px;">
+          <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+            <button type="button" class="btn btn-small btn-ghost" id="cancel-photo-btn">✕ Убрать вложение «Фото»</button>
+          </div>
           <div class="file-drop" id="file-drop">Нажмите, чтобы выбрать фото<br><span style="opacity:.6;">(будет сжато для хранения)</span></div>
           <input type="file" id="f-file" accept="image/*" style="display:none;">
-          <div style="position:relative; display:inline-block;">
-            <img class="preview-img hidden" id="f-preview">
-            <button type="button" class="icon-btn hidden" id="remove-photo-btn" title="Убрать фото" style="position:absolute; top:4px; right:4px; background:rgba(8,9,11,.6); color:#fff;">✕</button>
-          </div>
+          <img class="preview-img hidden" id="f-preview">
         </div>
 
         <div class="hidden" id="content-doc-wrap" style="margin-top:10px;">
+          <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+            <button type="button" class="btn btn-small btn-ghost" id="cancel-doc-btn">✕ Убрать вложение «Файл»</button>
+          </div>
           <div class="file-drop" id="doc-drop">Нажмите, чтобы выбрать файл<br><span style="opacity:.6;">документ, видео или аудио — до 20 МБ</span></div>
           <input type="file" id="f-doc-input" style="display:none;">
           <div class="hidden" id="doc-preview" style="display:flex; align-items:center; gap:8px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:8px 10px; margin-top:8px;">
             <span style="font-size:16px;">📎</span>
             <a id="doc-preview-name" class="content-link" style="flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" target="_blank" rel="noopener"></a>
             <span id="doc-preview-size" class="mono" style="font-size:10.5px; color:var(--dim);"></span>
-            <button type="button" class="icon-btn" id="remove-doc-btn" title="Убрать файл">✕</button>
           </div>
         </div>
       </div>
@@ -684,10 +686,21 @@ function renderDriveField(){
   const connected = gcalIsConnected();
   const lastBackup = SETTINGS.driveBackupAt ? formatDate(SETTINGS.driveBackupAt) : 'ещё не было';
   wrap.innerHTML = `<label>Бэкап на Google Диске</label>
-    <div class="hint" style="margin-bottom:8px;">Файл «${DRIVE_BACKUP_NAME}» в папке «${DRIVE_FOLDER_NAME}» на вашем Диске (создаётся автоматически при первом сохранении). Последний бэкап: ${lastBackup}. Виден с любого устройства, где вы войдёте под тем же Google-аккаунтом.</div>
-    <button class="btn btn-block ${connected?'btn-accent':''}" id="drive-upload-btn">⭱ Сохранить на Диск сейчас</button>
-    <button class="btn btn-block" id="drive-download-btn" style="margin-top:8px;">⭳ Восстановить с Диска</button>
-    <label class="checkbox-label" style="margin-top:10px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
+    <div class="hint" style="margin-bottom:10px;">Файл «${DRIVE_BACKUP_NAME}» в папке «${DRIVE_FOLDER_NAME}» на вашем Диске (создаётся автоматически при первом сохранении). Последний бэкап: ${lastBackup}.</div>
+
+    <div style="border:1px solid var(--teal-dim); border-radius:8px; padding:10px; margin-bottom:12px;">
+      <div style="font-size:11.5px; color:var(--teal); font-weight:600; margin-bottom:6px;">↑ ОТПРАВИТЬ ОТСЮДА В ОБЛАКО</div>
+      <div class="hint" style="margin:0 0 8px 0;">Загружает то, что вы видите на этом устройстве, поверх файла на Диске. Безопасно — ничего локально не меняет.</div>
+      <button class="btn btn-block btn-accent" id="drive-upload-btn">⭱ Сохранить на Диск сейчас</button>
+    </div>
+
+    <div style="border:1px solid var(--red); border-radius:8px; padding:10px;">
+      <div style="font-size:11.5px; color:var(--red); font-weight:600; margin-bottom:6px;">↓ ЗАГРУЗИТЬ ИЗ ОБЛАКА СЮДА</div>
+      <div class="hint" style="margin:0 0 8px 0;">⚠ Заменит (или дополнит) то, что вы видите на этом устройстве, версией с Диска. Используйте, если это устройство отстало или пустое.</div>
+      <button class="btn btn-block btn-ghost btn-danger" id="drive-download-btn" style="border-color:var(--red);">⭳ Восстановить с Диска</button>
+    </div>
+
+    <label class="checkbox-label" style="margin-top:12px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
   wrap.querySelector('#drive-upload-btn').onclick = ()=>driveUploadBackup(false);
   wrap.querySelector('#drive-download-btn').onclick = driveDownloadBackup;
   wrap.querySelector('#drive-auto-toggle').onchange = async (e)=>{ SETTINGS.driveAutoBackup = e.target.checked; await saveSettings(); };
@@ -1325,7 +1338,6 @@ function setPhotoAttachmentVisible(show){
   if(!show){
     modalPhotoData='';
     const prev=document.getElementById('f-preview'); prev.src=''; prev.classList.add('hidden');
-    document.getElementById('remove-photo-btn').classList.add('hidden');
   }
 }
 function humanFileSize(bytes){
@@ -1415,8 +1427,8 @@ function openItemModal(item){
 
   modalPhotoData = item ? (item.photo||'') : '';
   const preview = document.getElementById('f-preview');
-  if(modalPhotoData){ preview.src=modalPhotoData; preview.classList.remove('hidden'); document.getElementById('remove-photo-btn').classList.remove('hidden'); }
-  else{ preview.src=''; preview.classList.add('hidden'); document.getElementById('remove-photo-btn').classList.add('hidden'); }
+  if(modalPhotoData){ preview.src=modalPhotoData; preview.classList.remove('hidden'); }
+  else{ preview.src=''; preview.classList.add('hidden'); }
   setPhotoAttachmentVisible(!!modalPhotoData);
   document.getElementById('add-link-btn').classList.remove('hidden');
   document.getElementById('add-photo-btn').classList.remove('hidden');
@@ -1451,13 +1463,11 @@ document.querySelectorAll('#type-picker .type-opt').forEach(opt=>{
 document.getElementById('add-link-btn').onclick=()=>{ setLinkAttachmentVisible(true); setTimeout(()=>document.getElementById('f-link').focus(),0); };
 document.getElementById('remove-link-btn').onclick=()=>setLinkAttachmentVisible(false);
 document.getElementById('add-photo-btn').onclick=()=>{ setPhotoAttachmentVisible(true); };
-document.getElementById('remove-photo-btn').onclick=()=>setPhotoAttachmentVisible(false);
+document.getElementById('cancel-photo-btn').onclick=()=>setPhotoAttachmentVisible(false);
 document.getElementById('add-doc-btn').onclick=()=>{ setDocAttachmentVisible(true); };
-document.getElementById('remove-doc-btn').onclick=()=>setDocAttachmentVisible(false);
+document.getElementById('cancel-doc-btn').onclick=()=>setDocAttachmentVisible(false);
 
-document.getElementById('file-drop').onclick=()=>document.getElementById('f-file').click();
-document.getElementById('f-file').onchange=(e)=>{
-  const file=e.target.files[0]; if(!file) return;
+function processPhotoBlob(blob){
   const reader=new FileReader();
   reader.onload=(ev)=>{
     const img=new Image();
@@ -1468,13 +1478,33 @@ document.getElementById('f-file').onchange=(e)=>{
       canvas.width=w; canvas.height=h;
       canvas.getContext('2d').drawImage(img,0,0,w,h);
       modalPhotoData=canvas.toDataURL('image/jpeg',0.72);
+      setPhotoAttachmentVisible(true);
       const prev=document.getElementById('f-preview'); prev.src=modalPhotoData; prev.classList.remove('hidden');
-      document.getElementById('remove-photo-btn').classList.remove('hidden');
+      flashSaved('фото добавлено');
     };
     img.src=ev.target.result;
   };
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(blob);
+}
+
+document.getElementById('file-drop').onclick=()=>document.getElementById('f-file').click();
+document.getElementById('f-file').onchange=(e)=>{
+  const file=e.target.files[0]; if(!file) return;
+  processPhotoBlob(file);
 };
+
+document.getElementById('item-modal-overlay').addEventListener('paste', (e)=>{
+  if(document.getElementById('item-modal-overlay').classList.contains('hidden')) return;
+  const items = e.clipboardData && e.clipboardData.items;
+  if(!items) return;
+  for(const it of items){
+    if(it.type && it.type.startsWith('image/')){
+      const blob = it.getAsFile();
+      if(blob){ e.preventDefault(); processPhotoBlob(blob); }
+      break;
+    }
+  }
+});
 
 const MAX_DOC_BYTES = 20*1024*1024;
 document.getElementById('doc-drop').onclick=()=>document.getElementById('f-doc-input').click();
