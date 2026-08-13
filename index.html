@@ -359,16 +359,6 @@
   <div class="modal">
     <div class="modal-header"><h3>Настройки и бэкап</h3><button class="close-x" id="settings-modal-close">✕</button></div>
     <div class="modal-body">
-      <div class="field">
-        <label>Резервная копия</label>
-        <button class="btn btn-block" id="export-btn">⭳ Скачать бэкап (JSON)</button>
-        <div class="hint">Сохраняет все записи и структуру в файл на диск. Делайте это периодически — это единственная стопроцентная гарантия от потери данных.</div>
-      </div>
-      <div class="field">
-        <label>Восстановление</label>
-        <button class="btn btn-block" id="import-btn">⭱ Загрузить бэкап из файла</button>
-        <input type="file" id="import-file" accept=".json" style="display:none;">
-      </div>
       <div class="field" id="gcal-field"></div>
       <div class="field" id="drive-field"></div>
       <div class="field" id="pass-field"></div>
@@ -655,7 +645,10 @@ async function driveDownloadBackup(){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
     if(!data.tags || !data.items) throw new Error('неверный формат файла на Диске');
-    const replace = confirm('ОК — заменить текущие данные бэкапом с Диска.\nОтмена — добавить записи из бэкапа к текущим (свою структуру разделов оставить).');
+
+    try{ await idbSet('undo_snapshot', JSON.stringify({tags:TAGS, items:ITEMS, savedAt:Date.now()})); }catch(e){}
+
+    const replace = confirm('ОК — заменить текущие данные бэкапом с Диска.\nОтмена — добавить записи из бэкапа к текущим (свою структуру разделов оставить).\n\nТо, что сейчас на этом устройстве, будет автоматически подстраховано — если что-то пойдёт не так, в Настройках появится кнопка «Отменить восстановление».');
     if(replace){ TAGS=data.tags; ITEMS=data.items.map(migrateItem); }
     else{
       const existingTagIds=new Set(TAGS.map(t=>t.id));
@@ -666,9 +659,27 @@ async function driveDownloadBackup(){
     SETTINGS.driveBackupFileId = fileId;
     await saveTags(); await saveItems(); await saveSettings();
     render();
-    alert('Восстановлено с Google Диска.');
+    renderDriveField();
+    alert('Восстановлено с Google Диска. Если это было ошибкой — в Настройках теперь есть кнопка «Отменить восстановление».');
   }catch(err){
     alert('Не удалось загрузить с Google Диска: '+err.message);
+  }
+}
+async function undoLastRestore(){
+  try{
+    const raw = await idbGet('undo_snapshot');
+    if(!raw){ alert('Нечего отменять — подстраховки не найдено.'); return; }
+    const snap = JSON.parse(raw);
+    if(!confirm('Вернуть состояние на этом устройстве на момент '+formatDate(snap.savedAt)+'? Это отменит последнее восстановление с Диска.')) return;
+    TAGS = snap.tags;
+    ITEMS = snap.items.map(migrateItem);
+    await saveTags(); await saveItems();
+    await idbSet('undo_snapshot','');
+    render();
+    renderDriveField();
+    alert('Восстановление отменено, вернули то, что было до него.');
+  }catch(err){
+    alert('Не удалось отменить: '+err.message);
   }
 }
 function scheduleAutoBackup(){
@@ -676,7 +687,7 @@ function scheduleAutoBackup(){
   clearTimeout(driveBackupDebounce);
   driveBackupDebounce = setTimeout(()=>{ driveUploadBackup(true); }, 60000);
 }
-function renderDriveField(){
+async function renderDriveField(){
   const wrap = document.getElementById('drive-field');
   if(!wrap) return;
   if(!SETTINGS.gcalClientId){
@@ -685,24 +696,29 @@ function renderDriveField(){
   }
   const connected = gcalIsConnected();
   const lastBackup = SETTINGS.driveBackupAt ? formatDate(SETTINGS.driveBackupAt) : 'ещё не было';
+  let undoSnap=null;
+  try{ const raw=await idbGet('undo_snapshot'); if(raw) undoSnap=JSON.parse(raw); }catch(e){}
   wrap.innerHTML = `<label>Бэкап на Google Диске</label>
-    <div class="hint" style="margin-bottom:10px;">Файл «${DRIVE_BACKUP_NAME}» в папке «${DRIVE_FOLDER_NAME}» на вашем Диске (создаётся автоматически при первом сохранении). Последний бэкап: ${lastBackup}.</div>
+    <div class="hint" style="margin-bottom:14px;">Файл «${DRIVE_BACKUP_NAME}» в папке «${DRIVE_FOLDER_NAME}» на вашем Диске (создаётся автоматически при первом сохранении). Последний бэкап: ${lastBackup}.</div>
 
-    <div style="border:1px solid var(--teal-dim); border-radius:8px; padding:10px; margin-bottom:12px;">
+    <div style="border:1px solid var(--teal-dim); border-radius:8px; padding:12px; margin-bottom:20px;">
       <div style="font-size:11.5px; color:var(--teal); font-weight:600; margin-bottom:6px;">↑ ОТПРАВИТЬ ОТСЮДА В ОБЛАКО</div>
       <div class="hint" style="margin:0 0 8px 0;">Загружает то, что вы видите на этом устройстве, поверх файла на Диске. Безопасно — ничего локально не меняет.</div>
       <button class="btn btn-block btn-accent" id="drive-upload-btn">⭱ Сохранить на Диск сейчас</button>
     </div>
 
-    <div style="border:1px solid var(--red); border-radius:8px; padding:10px;">
+    <div style="border:1px solid var(--red); border-radius:8px; padding:12px;">
       <div style="font-size:11.5px; color:var(--red); font-weight:600; margin-bottom:6px;">↓ ЗАГРУЗИТЬ ИЗ ОБЛАКА СЮДА</div>
       <div class="hint" style="margin:0 0 8px 0;">⚠ Заменит (или дополнит) то, что вы видите на этом устройстве, версией с Диска. Используйте, если это устройство отстало или пустое.</div>
       <button class="btn btn-block btn-ghost btn-danger" id="drive-download-btn" style="border-color:var(--red);">⭳ Восстановить с Диска</button>
+      ${undoSnap ? `<div class="hint" style="margin:10px 0 6px 0; color:var(--gold);">Есть подстраховка от ${formatDate(undoSnap.savedAt)} — если предыдущее восстановление было ошибкой:</div><button class="btn btn-block" id="drive-undo-btn" style="border-color:var(--gold); color:var(--gold);">↺ Отменить последнее восстановление</button>` : ''}
     </div>
 
-    <label class="checkbox-label" style="margin-top:12px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
+    <label class="checkbox-label" style="margin-top:16px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
   wrap.querySelector('#drive-upload-btn').onclick = ()=>driveUploadBackup(false);
   wrap.querySelector('#drive-download-btn').onclick = driveDownloadBackup;
+  const undoBtn = wrap.querySelector('#drive-undo-btn');
+  if(undoBtn) undoBtn.onclick = undoLastRestore;
   wrap.querySelector('#drive-auto-toggle').onchange = async (e)=>{ SETTINGS.driveAutoBackup = e.target.checked; await saveSettings(); };
 }
 
@@ -1854,9 +1870,7 @@ document.getElementById('wipe-device-btn').onclick=async ()=>{
 document.getElementById('settings-modal-close').onclick=closeSettingsModal;
 document.getElementById('settings-modal-close2').onclick=closeSettingsModal;
 document.getElementById('settings-modal-overlay').onclick=(e)=>{ if(e.target.id==='settings-modal-overlay') closeSettingsModal(); };
-document.getElementById('export-btn').onclick=exportData;
-document.getElementById('import-btn').onclick=()=>document.getElementById('import-file').click();
-document.getElementById('import-file').onchange=(e)=>{ const f=e.target.files[0]; if(f) importDataFromFile(f); e.target.value=''; };
+
 
 /* =========================================================
    ПОИСК / РЕСАЙЗ / МОБИЛЬНОЕ МЕНЮ
