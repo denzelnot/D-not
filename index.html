@@ -178,6 +178,8 @@
 
   .node-row.drop-hover{ background:var(--teal); color:#0c1615; box-shadow:0 0 0 2px var(--teal); }
   .node-row.drop-hover .node-label{ color:#0c1615; }
+  .node-row.drop-before{ box-shadow: inset 0 2px 0 0 var(--teal); }
+  .node-row.drop-after{ box-shadow: inset 0 -2px 0 0 var(--teal); }
   .drag-ghost{
     position:fixed; z-index:200; pointer-events:none;
     background:var(--panel-2); border:1px solid var(--teal); color:var(--text);
@@ -275,6 +277,7 @@
         <div class="list-tools">
           <button type="button" class="btn btn-small btn-ghost hidden" id="add-link-btn">🔗 Добавить ссылку</button>
           <button type="button" class="btn btn-small btn-ghost hidden" id="add-photo-btn">🖼 Добавить фото</button>
+          <button type="button" class="btn btn-small btn-ghost hidden" id="add-doc-btn">📎 Добавить файл</button>
         </div>
 
         <div class="hidden" id="content-link-wrap" style="margin-top:10px;">
@@ -290,6 +293,17 @@
           <div style="position:relative; display:inline-block;">
             <img class="preview-img hidden" id="f-preview">
             <button type="button" class="icon-btn hidden" id="remove-photo-btn" title="Убрать фото" style="position:absolute; top:4px; right:4px; background:rgba(8,9,11,.6); color:#fff;">✕</button>
+          </div>
+        </div>
+
+        <div class="hidden" id="content-doc-wrap" style="margin-top:10px;">
+          <div class="file-drop" id="doc-drop">Нажмите, чтобы выбрать файл<br><span style="opacity:.6;">документ, видео или аудио — до 20 МБ</span></div>
+          <input type="file" id="f-doc-input" style="display:none;">
+          <div class="hidden" id="doc-preview" style="display:flex; align-items:center; gap:8px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:8px 10px; margin-top:8px;">
+            <span style="font-size:16px;">📎</span>
+            <a id="doc-preview-name" class="content-link" style="flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" target="_blank" rel="noopener"></a>
+            <span id="doc-preview-size" class="mono" style="font-size:10.5px; color:var(--dim);"></span>
+            <button type="button" class="icon-btn" id="remove-doc-btn" title="Убрать файл">✕</button>
           </div>
         </div>
       </div>
@@ -313,7 +327,10 @@
       </div>
     </div>
     <div class="modal-footer">
-      <div><button class="btn btn-ghost btn-danger btn-small hidden" id="delete-item-btn">Удалить запись</button></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost btn-danger btn-small hidden" id="delete-item-btn">Удалить запись</button>
+        <button class="btn btn-small hidden" id="restore-item-btn">↺ Восстановить из корзины</button>
+      </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost" id="cancel-item-btn">Отмена</button>
         <button class="btn btn-accent" id="save-item-btn">Сохранить</button>
@@ -426,6 +443,22 @@ let gcalAccessToken = null;
 let gcalTokenExpiry = 0;
 
 function gcalIsConnected(){ return !!gcalAccessToken && Date.now() < gcalTokenExpiry; }
+async function persistGcalToken(){
+  try{ await idbSet('gcal_token', JSON.stringify({token:gcalAccessToken, expiry:gcalTokenExpiry})); }catch(e){}
+}
+async function restorePersistedGcalToken(){
+  try{
+    const raw = await idbGet('gcal_token');
+    if(!raw) return false;
+    const data = JSON.parse(raw);
+    if(data.token && data.expiry && data.expiry > Date.now()+30000){
+      gcalAccessToken = data.token;
+      gcalTokenExpiry = data.expiry;
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
 
 function initGcalClientIfNeeded(){
   if(!GCAL_CLIENT_ID || !window.google || !google.accounts || !google.accounts.oauth2) return;
@@ -437,6 +470,7 @@ function initGcalClientIfNeeded(){
       if(resp && resp.access_token){
         gcalAccessToken = resp.access_token;
         gcalTokenExpiry = Date.now() + (resp.expires_in*1000 - 60000);
+        persistGcalToken();
         renderGcalField();
         flashSaved('Google подключён');
       }
@@ -530,7 +564,8 @@ function renderGcalField(){
     wrap.querySelector('#gcal-forget-btn').onclick = async ()=>{
       if(!confirm('Отключить Google? (Client ID и токен будут забыты на этом устройстве; сами файлы бэкапа на Диске не удалятся)')) return;
       delete SETTINGS.gcalClientId; await saveSettings();
-      gcalAccessToken=null; gcalTokenClient=null; GCAL_CLIENT_ID=null;
+      gcalAccessToken=null; gcalTokenClient=null; GCAL_CLIENT_ID=null; gcalTokenExpiry=0;
+      try{ await idbSet('gcal_token', ''); }catch(e){}
       renderGcalField(); renderDriveField();
     };
   }
@@ -727,10 +762,11 @@ function migrateItem(it){
   else if(it.type==='photo') photo = it.content||'';
   else text = it.content||'';
   return {
-    id: it.id, kind, title: it.title||'', text, link, photo,
+    id: it.id, kind, title: it.title||'', text, link, photo, file: it.file||null,
     taskDone: !!it.taskDone, tagIds: it.tagIds||[], checklist: it.checklist||[],
     reminderAt: it.reminderAt||null, reminderNotified: !!it.reminderNotified,
     gcalSync: !!it.gcalSync, gcalEventId: it.gcalEventId||null,
+    trashed: !!it.trashed, trashedAt: it.trashedAt||null,
     createdAt: it.createdAt||Date.now(), updatedAt: it.updatedAt||Date.now()
   };
 }
@@ -742,7 +778,9 @@ async function loadData(){
   if(SETTINGS.gcalClientId) GCAL_CLIENT_ID = SETTINGS.gcalClientId;
   if(SETTINGS.passHash) showLockScreen(); else render();
   setInterval(checkReminders, 30000);
-  attemptSilentGoogleReconnect();
+  const restored = await restorePersistedGcalToken();
+  if(restored){ renderGcalField(); renderDriveField(); }
+  else{ attemptSilentGoogleReconnect(); }
 }
 function attemptSilentGoogleReconnect(){
   if(!SETTINGS.gcalClientId) return;
@@ -781,10 +819,10 @@ function showLockScreen(){
 /* =========================================================
    ВСПОМОГАТЕЛЬНОЕ
    ========================================================= */
-function childrenOf(parentId){ return TAGS.filter(t=>t.parent===parentId); }
+function childrenOf(parentId){ return TAGS.filter(t=>t.parent===parentId).sort((a,b)=>(a.order??0)-(b.order??0)); }
 function tagById(id){ return TAGS.find(t=>t.id===id); }
-function itemCountForTag(tagId){ return ITEMS.filter(it=>it.tagIds.includes(tagId)).length; }
-function inboxCount(){ return ITEMS.filter(it=>it.tagIds.length===0).length; }
+function itemCountForTag(tagId){ return ITEMS.filter(it=>!it.trashed && it.tagIds.includes(tagId)).length; }
+function inboxCount(){ return ITEMS.filter(it=>!it.trashed && it.tagIds.length===0).length; }
 function formatDate(ts){ const d=new Date(ts); return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
 function snippetOf(item){ return (item.text||'').replace(/\s+/g,' ').trim(); }
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -797,6 +835,7 @@ async function shareItem(item){
   if(item.text) text += item.text+'\n';
   if(item.link) text += item.link+'\n';
   if(item.photo) text += '[фото прикреплено в D-Not]\n';
+  if(item.file) text += '[файл прикреплён в D-Not: '+item.file.name+']\n';
   if(item.checklist && item.checklist.length){ text += item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n')+'\n'; }
   if(tagsTxt) text += '\nМетки: '+tagsTxt;
   text = text.trim();
@@ -844,13 +883,15 @@ function notifyReminder(item){
 /* =========================================================
    РЕНДЕР ДЕРЕВА
    ========================================================= */
-function processedCount(){ return ITEMS.filter(it=>it.tagIds.length>0).length; }
+function processedCount(){ return ITEMS.filter(it=>!it.trashed && it.tagIds.length>0).length; }
+function trashCount(){ return ITEMS.filter(it=>it.trashed).length; }
 function renderPinned(){
   const wrap=document.getElementById('pinned-block');
   wrap.innerHTML='';
   wrap.appendChild(makeNodeRow({id:'inbox',label:'Входящие',code:'',icon:'▤',count:inboxCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'processed',label:'Обработанные',code:'',icon:'▦',count:processedCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'calendar',label:'Календарь',code:'',icon:'▥',count:null,hasChildren:false,isPinned:true}));
+  wrap.appendChild(makeNodeRow({id:'trash',label:'Корзина',code:'',icon:'🗑',count:trashCount(),hasChildren:false,isPinned:true}));
 }
 function makeNodeRow(opts){
   const {id,label,code,icon,count,hasChildren,isPinned=false}=opts;
@@ -873,13 +914,14 @@ function makeNodeRow(opts){
     row.appendChild(actions);
   }
   if(count!==null){ const cnt=document.createElement('span'); cnt.className='node-count mono'; cnt.textContent=count; row.appendChild(cnt); }
-  row.onclick=()=>{ selectedNodeId=id; render(); };
+  row.onclick=()=>{ if(row.dataset.justDragged){ delete row.dataset.justDragged; return; } selectedNodeId=id; render(); };
   return row;
 }
 function renderTreeLevel(parentId, container, depth){
   childrenOf(parentId).forEach(tag=>{
     const hasChildren=childrenOf(tag.id).length>0;
     const row=makeNodeRow({id:tag.id,label:tag.label,code:tag.code,icon:depth===0?'▸':'·',count:itemCountForTag(tag.id),hasChildren});
+    makeTagRowDraggable(row, tag.id);
     container.appendChild(row);
     if(hasChildren){
       const childWrap=document.createElement('div'); childWrap.className='children';
@@ -899,6 +941,7 @@ function currentNodeInfo(){
   if(selectedNodeId==='inbox') return {label:'Входящие',code:'',desc:'Необработанные записи — без меток'};
   if(selectedNodeId==='processed') return {label:'Обработанные',code:'',desc:'Все записи с хотя бы одной меткой, из всех разделов сразу'};
   if(selectedNodeId==='calendar') return {label:'Календарь',code:'',desc:'Ближайшие 14 дней из Google Calendar'};
+  if(selectedNodeId==='trash') return {label:'Корзина',code:'',desc:'Перетащите запись сюда, чтобы убрать — можно восстановить в любой момент'};
   const tag=tagById(selectedNodeId);
   if(!tag) return {label:'Входящие',code:'',desc:''};
   const path=[]; let cur=tag;
@@ -908,18 +951,19 @@ function currentNodeInfo(){
 function itemsForSelection(){
   const q=searchQuery.trim().toLowerCase();
   if(q){
-    return ITEMS.filter(it=>
+    return ITEMS.filter(it=> !it.trashed && (
       (it.title||'').toLowerCase().includes(q) ||
       (it.text||'').toLowerCase().includes(q) ||
       (it.link||'').toLowerCase().includes(q) ||
       (it.checklist||[]).some(c=>(c.text||'').toLowerCase().includes(q))
-    ).slice().sort((a,b)=>b.createdAt-a.createdAt);
+    )).slice().sort((a,b)=>b.createdAt-a.createdAt);
   }
   let list;
-  if(selectedNodeId==='inbox') list=ITEMS.filter(it=>it.tagIds.length===0);
-  else if(selectedNodeId==='processed') list=ITEMS.filter(it=>it.tagIds.length>0);
-  else list=ITEMS.filter(it=>it.tagIds.includes(selectedNodeId));
-  return list.slice().sort((a,b)=>b.createdAt-a.createdAt);
+  if(selectedNodeId==='inbox') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length===0);
+  else if(selectedNodeId==='processed') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length>0);
+  else if(selectedNodeId==='trash') list=ITEMS.filter(it=>it.trashed);
+  else list=ITEMS.filter(it=>!it.trashed && it.tagIds.includes(selectedNodeId));
+  return list.slice().sort((a,b)=> (selectedNodeId==='trash' ? (b.trashedAt||0)-(a.trashedAt||0) : b.createdAt-a.createdAt));
 }
 function renderHeader(){
   const codeEl=document.getElementById('main-code');
@@ -940,6 +984,10 @@ function renderList(){
   const wrap=document.getElementById('item-list');
   if(selectedNodeId==='calendar' && !searchQuery.trim()){
     renderCalendarAgenda();
+    return;
+  }
+  if(selectedNodeId==='trash' && !searchQuery.trim()){
+    renderTrashList();
     return;
   }
   wrap.innerHTML='';
@@ -968,6 +1016,7 @@ function renderList(){
     if(searching && item.tagIds.length===0) tagsHtml += `<span class="tag-chip">Входящие</span>`;
     if(item.link) tagsHtml += `<span class="tag-chip">🔗 ${escapeHtml(domainOf(item.link))}</span>`;
     if(item.photo) tagsHtml += `<span class="tag-chip">🖼 фото</span>`;
+    if(item.file) tagsHtml += `<span class="tag-chip">📎 ${escapeHtml((item.file.name||'файл').slice(0,22))}</span>`;
     if(item.checklist && item.checklist.length){
       const done=item.checklist.filter(c=>c.done).length;
       tagsHtml += `<span class="tag-chip">☑ ${done}/${item.checklist.length}</span>`;
@@ -997,6 +1046,75 @@ function renderList(){
     makeCardDraggable(card, item);
     wrap.appendChild(card);
   });
+}
+
+/* =========================================================
+   КОРЗИНА
+   ========================================================= */
+function renderTrashList(){
+  const wrap=document.getElementById('item-list');
+  wrap.innerHTML='';
+  const list = ITEMS.filter(it=>it.trashed).sort((a,b)=>(b.trashedAt||0)-(a.trashedAt||0));
+
+  const top=document.createElement('div');
+  top.style.cssText='display:flex; justify-content:flex-end; margin-bottom:10px;';
+  top.innerHTML=`<button class="btn btn-small btn-danger" id="empty-trash-btn" ${list.length?'':'disabled'}>🗑 Очистить корзину</button>`;
+  wrap.appendChild(top);
+  top.querySelector('#empty-trash-btn').onclick=emptyTrash;
+
+  if(list.length===0){
+    const es=document.createElement('div'); es.className='empty-state';
+    es.innerHTML=`<div class="glyph">∅</div><div class="msg">Корзина пуста.<br>На ПК перетащите карточку сюда, чтобы убрать её из активных разделов — записи полежат здесь, пока не восстановите или не очистите корзину.</div>`;
+    wrap.appendChild(es);
+    return;
+  }
+
+  list.forEach(item=>{
+    const meta=TYPE_META[item.kind] || TYPE_META.note;
+    const card=document.createElement('div'); card.className='card';
+    let thumb='';
+    if(item.photo) thumb=`<img class="card-thumb" src="${item.photo}" style="opacity:.5;">`;
+    else thumb=`<div class="card-type-icon" style="background:${meta.color}15; color:${meta.color}88;">${meta.icon}</div>`;
+    const titleText = item.title || (item.text||'').slice(0,60) || (item.link?domainOf(item.link):'') || '(без названия)';
+    card.style.opacity='.75';
+    card.innerHTML = `
+      ${thumb}
+      <div class="card-body">
+        <div class="card-top">
+          <div class="card-title">${escapeHtml(titleText)}</div>
+          <div class="card-date mono">${item.trashedAt ? formatDate(item.trashedAt) : ''}</div>
+        </div>
+        ${item.title && item.text ? `<div class="card-snippet">${escapeHtml(snippetOf(item))}</div>` : ''}
+        <div class="card-tags">
+          <button type="button" class="share-btn" data-act="restore">↺ Восстановить</button>
+          <button type="button" class="share-btn" data-act="delete" style="color:var(--red);">✕ Удалить навсегда</button>
+        </div>
+      </div>
+    `;
+    card.querySelector('[data-act=restore]').onclick=(e)=>{
+      e.stopPropagation();
+      ITEMS = ITEMS.map(x=>x.id===item.id ? {...x, trashed:false, trashedAt:null} : x);
+      saveItems(); render();
+    };
+    card.querySelector('[data-act=delete]').onclick=(e)=>{
+      e.stopPropagation();
+      if(!confirm('Удалить эту запись навсегда? Отменить будет нельзя.')) return;
+      if(item.gcalEventId && gcalIsConnected()) gcalDeleteEvent(item.gcalEventId).catch(()=>{});
+      ITEMS = ITEMS.filter(x=>x.id!==item.id);
+      saveItems(); render();
+    };
+    card.onclick=()=>openItemModal(item);
+    wrap.appendChild(card);
+  });
+}
+function emptyTrash(){
+  const list = ITEMS.filter(it=>it.trashed);
+  if(!list.length) return;
+  if(!confirm(`Удалить навсегда все записи в корзине (${list.length})? Отменить будет нельзя.`)) return;
+  list.forEach(it=>{ if(it.gcalEventId && gcalIsConnected()) gcalDeleteEvent(it.gcalEventId).catch(()=>{}); });
+  ITEMS = ITEMS.filter(it=>!it.trashed);
+  saveItems();
+  render();
 }
 
 /* =========================================================
@@ -1141,6 +1259,15 @@ function makeCardDraggable(card, item){
 function applyDragTag(item, targetId){
   const fresh = ITEMS.find(it=>it.id===item.id);
   if(!fresh) return;
+  if(targetId==='trash'){
+    if(!confirm('Переместить «'+((fresh.title||fresh.text||fresh.link||'запись').slice(0,40))+'» в корзину?')) return;
+    fresh.trashed=true; fresh.trashedAt=Date.now();
+    flashSaved('в корзине');
+    ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
+    saveItems();
+    render();
+    return;
+  }
   if(targetId==='inbox'){
     if(fresh.tagIds.length===0) return;
     fresh.tagIds=[];
@@ -1164,6 +1291,7 @@ let editingItemId=null;
 let currentType='note';
 let modalTagIds=new Set();
 let modalPhotoData='';
+let modalFileData=null;
 let currentChecklist=[];
 
 function setModalType(type){
@@ -1199,6 +1327,29 @@ function setPhotoAttachmentVisible(show){
     const prev=document.getElementById('f-preview'); prev.src=''; prev.classList.add('hidden');
     document.getElementById('remove-photo-btn').classList.add('hidden');
   }
+}
+function humanFileSize(bytes){
+  if(bytes<1024) return bytes+' Б';
+  if(bytes<1024*1024) return Math.round(bytes/1024)+' КБ';
+  return (bytes/1024/1024).toFixed(1)+' МБ';
+}
+function setDocAttachmentVisible(show){
+  document.getElementById('content-doc-wrap').classList.toggle('hidden', !show);
+  document.getElementById('add-doc-btn').classList.toggle('hidden', show);
+  if(!show){
+    modalFileData=null;
+    document.getElementById('doc-preview').classList.add('hidden');
+  }
+}
+function renderDocPreview(){
+  const box=document.getElementById('doc-preview');
+  if(!modalFileData){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const nameEl=document.getElementById('doc-preview-name');
+  nameEl.textContent = modalFileData.name;
+  nameEl.href = modalFileData.dataUrl;
+  nameEl.download = modalFileData.name;
+  document.getElementById('doc-preview-size').textContent = humanFileSize(modalFileData.size);
 }
 
 function renderChecklist(){
@@ -1250,8 +1401,10 @@ function renderCurrentTags(){
 
 function openItemModal(item){
   editingItemId = item ? item.id : null;
-  document.getElementById('item-modal-title').textContent = item ? 'Запись' : 'Новая запись';
+  document.getElementById('item-modal-title').textContent = item ? (item.trashed ? 'Запись (в корзине)' : 'Запись') : 'Новая запись';
   document.getElementById('delete-item-btn').classList.toggle('hidden', !item);
+  document.getElementById('delete-item-btn').textContent = item && item.trashed ? 'Удалить навсегда' : 'Удалить запись';
+  document.getElementById('restore-item-btn').classList.toggle('hidden', !(item && item.trashed));
   document.getElementById('share-item-btn').classList.toggle('hidden', !item);
 
   document.getElementById('f-title').value = item ? item.title : '';
@@ -1267,8 +1420,14 @@ function openItemModal(item){
   setPhotoAttachmentVisible(!!modalPhotoData);
   document.getElementById('add-link-btn').classList.remove('hidden');
   document.getElementById('add-photo-btn').classList.remove('hidden');
+  document.getElementById('add-doc-btn').classList.remove('hidden');
   if(item && item.link) document.getElementById('add-link-btn').classList.add('hidden');
   if(item && item.photo) document.getElementById('add-photo-btn').classList.add('hidden');
+  if(item && item.file) document.getElementById('add-doc-btn').classList.add('hidden');
+
+  modalFileData = item && item.file ? item.file : null;
+  renderDocPreview();
+  setDocAttachmentVisible(!!modalFileData);
 
   document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
   document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
@@ -1293,6 +1452,8 @@ document.getElementById('add-link-btn').onclick=()=>{ setLinkAttachmentVisible(t
 document.getElementById('remove-link-btn').onclick=()=>setLinkAttachmentVisible(false);
 document.getElementById('add-photo-btn').onclick=()=>{ setPhotoAttachmentVisible(true); };
 document.getElementById('remove-photo-btn').onclick=()=>setPhotoAttachmentVisible(false);
+document.getElementById('add-doc-btn').onclick=()=>{ setDocAttachmentVisible(true); };
+document.getElementById('remove-doc-btn').onclick=()=>setDocAttachmentVisible(false);
 
 document.getElementById('file-drop').onclick=()=>document.getElementById('f-file').click();
 document.getElementById('f-file').onchange=(e)=>{
@@ -1312,6 +1473,24 @@ document.getElementById('f-file').onchange=(e)=>{
     };
     img.src=ev.target.result;
   };
+  reader.readAsDataURL(file);
+};
+
+const MAX_DOC_BYTES = 20*1024*1024;
+document.getElementById('doc-drop').onclick=()=>document.getElementById('f-doc-input').click();
+document.getElementById('f-doc-input').onchange=(e)=>{
+  const file=e.target.files[0]; if(!file) return;
+  if(file.size > MAX_DOC_BYTES){
+    alert('Файл слишком большой ('+humanFileSize(file.size)+') — локальное хранилище рассчитано максимум на 20 МБ на файл. Для больших файлов лучше загрузить их в облако самостоятельно и прикрепить сюда ссылку.');
+    e.target.value='';
+    return;
+  }
+  const reader=new FileReader();
+  reader.onload=(ev)=>{
+    modalFileData = {name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:ev.target.result};
+    renderDocPreview();
+  };
+  reader.onerror=()=>{ alert('Не удалось прочитать файл.'); };
   reader.readAsDataURL(file);
 };
 
@@ -1385,12 +1564,23 @@ document.getElementById('share-item-btn').onclick=()=>{ const it=ITEMS.find(i=>i
 
 document.getElementById('delete-item-btn').onclick=()=>{
   if(!editingItemId) return;
-  if(confirm('Удалить эту запись безвозвратно?')){
-    const it = ITEMS.find(i=>i.id===editingItemId);
-    if(it && it.gcalEventId && gcalIsConnected()) gcalDeleteEvent(it.gcalEventId).catch(()=>{});
-    ITEMS=ITEMS.filter(it=>it.id!==editingItemId);
+  const it = ITEMS.find(i=>i.id===editingItemId);
+  if(!it) return;
+  if(it.trashed){
+    if(!confirm('Удалить эту запись навсегда? Отменить будет нельзя.')) return;
+    if(it.gcalEventId && gcalIsConnected()) gcalDeleteEvent(it.gcalEventId).catch(()=>{});
+    ITEMS = ITEMS.filter(x=>x.id!==editingItemId);
+    saveItems(); closeItemModal(); render();
+  } else {
+    if(!confirm('Переместить эту запись в корзину?')) return;
+    ITEMS = ITEMS.map(x=>x.id===editingItemId ? {...x, trashed:true, trashedAt:Date.now()} : x);
     saveItems(); closeItemModal(); render();
   }
+};
+document.getElementById('restore-item-btn').onclick=()=>{
+  if(!editingItemId) return;
+  ITEMS = ITEMS.map(x=>x.id===editingItemId ? {...x, trashed:false, trashedAt:null} : x);
+  saveItems(); closeItemModal(); render();
 };
 
 document.getElementById('save-item-btn').onclick=()=>{
@@ -1398,10 +1588,12 @@ document.getElementById('save-item-btn').onclick=()=>{
   const text=document.getElementById('f-content').value.trim();
   const link=document.getElementById('content-link-wrap').classList.contains('hidden') ? '' : document.getElementById('f-link').value.trim();
   const photo=document.getElementById('content-photo-wrap').classList.contains('hidden') ? '' : modalPhotoData;
+  const file=document.getElementById('content-doc-wrap').classList.contains('hidden') ? null : modalFileData;
 
-  if(!title && !text && !link && !photo){ alert('Добавьте хотя бы заголовок, текст, ссылку или фото.'); return; }
+  if(!title && !text && !link && !photo && !file){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото или файл.'); return; }
   if(!document.getElementById('content-photo-wrap').classList.contains('hidden') && !photo){ alert('Выберите изображение или уберите вложение «Фото».'); return; }
   if(!document.getElementById('content-link-wrap').classList.contains('hidden') && !link){ alert('Впишите ссылку или уберите вложение «Ссылка».'); return; }
+  if(!document.getElementById('content-doc-wrap').classList.contains('hidden') && !file){ alert('Выберите файл или уберите вложение «Файл».'); return; }
 
   const reminderVal=document.getElementById('f-reminder').value;
   const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
@@ -1411,7 +1603,7 @@ document.getElementById('save-item-btn').onclick=()=>{
   const base = editingItemId ? ITEMS.find(it=>it.id===editingItemId) : null;
   const newItem = {
     id: editingItemId || uid(),
-    kind: currentType, title, text, link, photo,
+    kind: currentType, title, text, link, photo, file,
     taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
     tagIds: Array.from(modalTagIds),
     checklist: cleanChecklist,
@@ -1419,6 +1611,8 @@ document.getElementById('save-item-btn').onclick=()=>{
     reminderNotified: (base && base.reminderAt===reminderAt) ? !!base.reminderNotified : false,
     gcalSync,
     gcalEventId: base ? base.gcalEventId : null,
+    trashed: base ? !!base.trashed : false,
+    trashedAt: base ? (base.trashedAt||null) : null,
     createdAt: base ? base.createdAt : Date.now(),
     updatedAt: Date.now()
   };
@@ -1453,9 +1647,94 @@ document.getElementById('tag-modal-save').onclick=()=>{
   const code=document.getElementById('tag-code').value.trim();
   if(!label){ alert('Введите название раздела.'); return; }
   if(tagModalEditId){ TAGS=TAGS.map(t=>t.id===tagModalEditId?{...t,label,code}:t); }
-  else{ const id=uid(); TAGS.push({id,code,label,parent:tagModalParentId}); expanded.add(tagModalParentId); }
+  else{
+    const id=uid();
+    const siblings=childrenOf(tagModalParentId);
+    const nextOrder = siblings.length ? Math.max(...siblings.map(t=>t.order??0))+1 : 0;
+    TAGS.push({id,code,label,parent:tagModalParentId,order:nextOrder});
+    expanded.add(tagModalParentId);
+  }
   saveTags(); closeTagModal(); render();
 };
+
+function isDescendantTag(candidateId, ancestorId){
+  let cur = tagById(candidateId);
+  while(cur){ if(cur.parent===ancestorId) return true; cur = tagById(cur.parent); }
+  return false;
+}
+function reorderTag(draggedId, targetId, mode){
+  const dragged = tagById(draggedId), target = tagById(targetId);
+  if(!dragged || !target || dragged.id===target.id) return;
+  if(dragged.id===target.parent || isDescendantTag(target.id, dragged.id)){
+    alert('Нельзя переместить раздел внутрь самого себя.');
+    return;
+  }
+  const newParent = mode==='child' ? target.id : target.parent;
+  let siblings = childrenOf(newParent).filter(t=>t.id!==dragged.id);
+  let insertIndex = siblings.length;
+  if(mode!=='child'){
+    const targetIndex = siblings.findIndex(t=>t.id===target.id);
+    insertIndex = mode==='before' ? targetIndex : targetIndex+1;
+  }
+  siblings.splice(insertIndex, 0, dragged);
+  const idsInOrder = siblings.map(t=>t.id);
+  TAGS = TAGS.map(t=>{
+    const idx = idsInOrder.indexOf(t.id);
+    if(idx===-1) return t;
+    return {...t, parent:newParent, order:idx};
+  });
+  if(newParent) expanded.add(newParent);
+  saveTags();
+  render();
+}
+function makeTagRowDraggable(row, tagId){
+  row.addEventListener('pointerdown', (e)=>{
+    if(window.innerWidth<=720) return;
+    if(e.pointerType==='mouse' && e.button!==0) return;
+    if(e.target.closest('.node-actions') || e.target.closest('.chevron')) return;
+    const startX=e.clientX, startY=e.clientY;
+    let started=false, ghost=null, currentTarget=null, currentMode=null;
+    function clearHover(){ document.querySelectorAll('.node-row.drop-hover, .node-row.drop-before, .node-row.drop-after').forEach(el=>el.classList.remove('drop-hover','drop-before','drop-after')); }
+    function onMove(ev){
+      const dx=ev.clientX-startX, dy=ev.clientY-startY;
+      if(!started && Math.hypot(dx,dy)>10){
+        started=true;
+        ghost=document.createElement('div'); ghost.className='drag-ghost';
+        ghost.textContent='▸ '+(tagById(tagId)?.label||'раздел');
+        document.body.appendChild(ghost);
+        document.body.classList.add('dragging-active');
+      }
+      if(started){
+        ghost.style.left=(ev.clientX+14)+'px'; ghost.style.top=(ev.clientY+10)+'px';
+        clearHover();
+        const el=document.elementFromPoint(ev.clientX, ev.clientY);
+        const rowEl = el ? el.closest('.node-row') : null;
+        const rid = rowEl ? rowEl.dataset.id : null;
+        if(rowEl && rid && !['inbox','processed','calendar','trash'].includes(rid) && rid!==tagId){
+          const rect=rowEl.getBoundingClientRect();
+          const relY=(ev.clientY-rect.top)/rect.height;
+          if(relY<0.25){ currentMode='before'; rowEl.classList.add('drop-before'); }
+          else if(relY>0.75){ currentMode='after'; rowEl.classList.add('drop-after'); }
+          else { currentMode='child'; rowEl.classList.add('drop-hover'); }
+          currentTarget=rid;
+        } else { currentTarget=null; currentMode=null; }
+      }
+    }
+    function onUp(){
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      clearHover();
+      if(ghost) ghost.remove();
+      document.body.classList.remove('dragging-active');
+      if(started){
+        row.dataset.justDragged='1';
+        if(currentTarget && currentMode) reorderTag(tagId, currentTarget, currentMode);
+      }
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+}
 
 function deleteTag(tagId){
   const tag=tagById(tagId); if(!tag) return;
