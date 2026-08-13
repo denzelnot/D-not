@@ -155,6 +155,12 @@
   .tagpick-code{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--dim); }
 
   .file-drop{ border:1.5px dashed var(--border); border-radius:var(--radius); padding:16px; text-align:center; color:var(--dim); font-size:12.5px; cursor:pointer; }
+  .attach-row{ display:flex; align-items:center; gap:8px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:6px 8px; margin-bottom:6px; }
+  .attach-row input[type=url]{ flex:1; background:none; border:none; color:var(--text); font-family:inherit; font-size:13px; outline:none; }
+  .attach-row .attach-open{ color:var(--teal); text-decoration:none; font-size:13px; flex:none; }
+  .photo-thumb-wrap{ position:relative; width:64px; height:64px; border-radius:6px; overflow:hidden; border:1px solid var(--border); flex:none; }
+  .photo-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .photo-thumb-wrap .icon-btn{ position:absolute; top:2px; right:2px; background:rgba(8,9,11,.7); color:#fff; width:18px; height:18px; }
   .file-drop:hover{ border-color:var(--teal-dim); color:var(--muted); }
   .preview-img{ max-width:100%; max-height:200px; border-radius:6px; margin-top:10px; display:block; }
 
@@ -190,6 +196,9 @@
   body.dragging-active{ cursor:grabbing; }
   body.dragging-active .card{ cursor:grabbing; }
 
+  #sidebar-backdrop{ position:fixed; inset:0; background:rgba(6,7,9,.5); z-index:39; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+  #sidebar-backdrop.show{ opacity:1; pointer-events:auto; }
+
   @media (max-width: 720px){
     #sidebar{ position:fixed; z-index:40; height:100%; width:82%; max-width:320px; transform:translateX(-100%); transition:transform .2s ease; }
     #sidebar.mobile-open{ transform:translateX(0); }
@@ -198,10 +207,25 @@
     #mobile-menu-btn{ display:flex !important; }
     .overlay{ padding:0; align-items:flex-end; }
     .modal{ max-width:100%; border-radius:12px 12px 0 0; max-height:92vh; }
+
+    body{ font-size:15.5px; }
+    .node-label{ font-size:14.5px; }
+    .node-count{ font-size:12px; }
+    .brand-title{ font-size:19px; }
+    .card-title{ font-size:15.5px; }
+    .card-snippet{ font-size:13.5px; }
+    .card-date{ font-size:11px; }
+    .tag-chip{ font-size:11px; }
+    #main-title{ font-size:19px; }
+    .section-label{ font-size:11px; }
+    .search-input{ font-size:14.5px; }
+    .btn{ font-size:13.5px; }
   }
 </style>
 </head>
 <body>
+
+<div id="sidebar-backdrop"></div>
 
 <div id="lock-screen" class="hidden">
   <div class="lock-box">
@@ -273,41 +297,18 @@
       </div>
 
       <div class="field">
-        <label>Вложения</label>
+        <label>Вложения <span style="text-transform:none; color:var(--dim);">(можно несколько любого вида)</span></label>
         <div class="list-tools">
-          <button type="button" class="btn btn-small btn-ghost hidden" id="add-link-btn">🔗 Добавить ссылку</button>
-          <button type="button" class="btn btn-small btn-ghost hidden" id="add-photo-btn">🖼 Добавить фото</button>
-          <button type="button" class="btn btn-small btn-ghost hidden" id="add-doc-btn">📎 Добавить файл</button>
+          <button type="button" class="btn btn-small btn-ghost" id="add-link-btn">🔗 Добавить ссылку</button>
+          <button type="button" class="btn btn-small btn-ghost" id="add-photo-btn">🖼 Добавить фото</button>
+          <button type="button" class="btn btn-small btn-ghost" id="add-doc-btn">📎 Добавить файл</button>
         </div>
+        <input type="file" id="f-file" accept="image/*" multiple style="display:none;">
+        <input type="file" id="f-doc-input" multiple style="display:none;">
 
-        <div class="hidden" id="content-link-wrap" style="margin-top:10px;">
-          <div style="display:flex; gap:6px; align-items:center;">
-            <input type="url" id="f-link" placeholder="https://…" autocomplete="off" style="flex:1;">
-            <button type="button" class="icon-btn" id="remove-link-btn" title="Убрать ссылку">✕</button>
-          </div>
-        </div>
-
-        <div class="hidden" id="content-photo-wrap" style="margin-top:10px;">
-          <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
-            <button type="button" class="btn btn-small btn-ghost" id="cancel-photo-btn">✕ Убрать вложение «Фото»</button>
-          </div>
-          <div class="file-drop" id="file-drop">Нажмите, чтобы выбрать фото<br><span style="opacity:.6;">(будет сжато для хранения)</span></div>
-          <input type="file" id="f-file" accept="image/*" style="display:none;">
-          <img class="preview-img hidden" id="f-preview">
-        </div>
-
-        <div class="hidden" id="content-doc-wrap" style="margin-top:10px;">
-          <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
-            <button type="button" class="btn btn-small btn-ghost" id="cancel-doc-btn">✕ Убрать вложение «Файл»</button>
-          </div>
-          <div class="file-drop" id="doc-drop">Нажмите, чтобы выбрать файл<br><span style="opacity:.6;">документ, видео или аудио — до 20 МБ</span></div>
-          <input type="file" id="f-doc-input" style="display:none;">
-          <div class="hidden" id="doc-preview" style="display:flex; align-items:center; gap:8px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:8px 10px; margin-top:8px;">
-            <span style="font-size:16px;">📎</span>
-            <a id="doc-preview-name" class="content-link" style="flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" target="_blank" rel="noopener"></a>
-            <span id="doc-preview-size" class="mono" style="font-size:10.5px; color:var(--dim);"></span>
-          </div>
-        </div>
+        <div id="links-list" style="margin-top:10px;"></div>
+        <div id="photos-list" style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;"></div>
+        <div id="docs-list" style="margin-top:10px;"></div>
       </div>
 
       <div class="field" id="checklist-wrap">
@@ -477,7 +478,7 @@ function gcalConnect(){
 async function gcalUpsertEvent(item){
   const eventBody = {
     summary: item.title || (item.text||'').slice(0,60) || 'Задача из D-Not',
-    description: (item.text||'') + (item.link ? '\n'+item.link : '') + (item.checklist&&item.checklist.length ? '\n\n'+item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n') : ''),
+    description: (item.text||'') + (item.links&&item.links.length ? '\n'+item.links.join('\n') : '') + (item.checklist&&item.checklist.length ? '\n\n'+item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n') : ''),
     start:{ dateTime: new Date(item.reminderAt).toISOString() },
     end:{ dateTime: new Date(item.reminderAt + 30*60000).toISOString() }
   };
@@ -784,19 +785,31 @@ async function saveItems(){ try{ await idbSet('items', JSON.stringify(ITEMS)); f
 async function saveSettings(){ try{ await idbSet('settings', JSON.stringify(SETTINGS)); flashSaved(); }catch(e){} }
 
 function migrateItem(it){
-  if(it.kind) return it; // уже новый формат
-  const kind = it.type==='task' ? 'task' : 'note';
-  let text='', link='', photo='';
-  if(it.type==='link') link = it.content||'';
-  else if(it.type==='photo') photo = it.content||'';
-  else text = it.content||'';
+  let base = it;
+  if(!it.kind){
+    const kind = it.type==='task' ? 'task' : 'note';
+    let text='', link='', photo='';
+    if(it.type==='link') link = it.content||'';
+    else if(it.type==='photo') photo = it.content||'';
+    else text = it.content||'';
+    base = { id: it.id, kind, title: it.title||'', text, link, photo, file: it.file||null,
+      taskDone: !!it.taskDone, tagIds: it.tagIds||[], checklist: it.checklist||[],
+      reminderAt: it.reminderAt||null, reminderNotified: !!it.reminderNotified,
+      gcalSync: !!it.gcalSync, gcalEventId: it.gcalEventId||null,
+      trashed: !!it.trashed, trashedAt: it.trashedAt||null,
+      createdAt: it.createdAt||Date.now(), updatedAt: it.updatedAt||Date.now() };
+  }
+  const links = Array.isArray(base.links) ? base.links : (base.link ? [base.link] : []);
+  const photos = Array.isArray(base.photos) ? base.photos : (base.photo ? [base.photo] : []);
+  const files = Array.isArray(base.files) ? base.files : (base.file ? [base.file] : []);
   return {
-    id: it.id, kind, title: it.title||'', text, link, photo, file: it.file||null,
-    taskDone: !!it.taskDone, tagIds: it.tagIds||[], checklist: it.checklist||[],
-    reminderAt: it.reminderAt||null, reminderNotified: !!it.reminderNotified,
-    gcalSync: !!it.gcalSync, gcalEventId: it.gcalEventId||null,
-    trashed: !!it.trashed, trashedAt: it.trashedAt||null,
-    createdAt: it.createdAt||Date.now(), updatedAt: it.updatedAt||Date.now()
+    id: base.id, kind: base.kind, title: base.title||'', text: base.text||'',
+    links, photos, files,
+    taskDone: !!base.taskDone, tagIds: base.tagIds||[], checklist: base.checklist||[],
+    reminderAt: base.reminderAt||null, reminderNotified: !!base.reminderNotified,
+    gcalSync: !!base.gcalSync, gcalEventId: base.gcalEventId||null,
+    trashed: !!base.trashed, trashedAt: base.trashedAt||null,
+    createdAt: base.createdAt||Date.now(), updatedAt: base.updatedAt||Date.now()
   };
 }
 
@@ -862,9 +875,9 @@ async function shareItem(item){
   let text='';
   if(item.title) text += item.title+'\n';
   if(item.text) text += item.text+'\n';
-  if(item.link) text += item.link+'\n';
-  if(item.photo) text += '[фото прикреплено в D-Not]\n';
-  if(item.file) text += '[файл прикреплён в D-Not: '+item.file.name+']\n';
+  if(item.links && item.links.length) text += item.links.join('\n')+'\n';
+  if(item.photos && item.photos.length) text += '[фото прикреплено в D-Not: '+item.photos.length+' шт.]\n';
+  if(item.files && item.files.length) text += item.files.map(f=>'[файл: '+f.name+']').join('\n')+'\n';
   if(item.checklist && item.checklist.length){ text += item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n')+'\n'; }
   if(tagsTxt) text += '\nМетки: '+tagsTxt;
   text = text.trim();
@@ -983,7 +996,8 @@ function itemsForSelection(){
     return ITEMS.filter(it=> !it.trashed && (
       (it.title||'').toLowerCase().includes(q) ||
       (it.text||'').toLowerCase().includes(q) ||
-      (it.link||'').toLowerCase().includes(q) ||
+      (it.links||[]).some(l=>l.toLowerCase().includes(q)) ||
+      (it.files||[]).some(f=>(f.name||'').toLowerCase().includes(q)) ||
       (it.checklist||[]).some(c=>(c.text||'').toLowerCase().includes(q))
     )).slice().sort((a,b)=>b.createdAt-a.createdAt);
   }
@@ -1038,14 +1052,14 @@ function renderList(){
     const card=document.createElement('div'); card.className='card';
     let thumb='';
     if(item.kind==='task') thumb=`<button type="button" class="task-check-btn ${item.taskDone?'done':''}" title="Отметить выполненной">${item.taskDone?'✓':''}</button>`;
-    else if(item.photo) thumb=`<img class="card-thumb" src="${item.photo}">`;
+    else if(item.photos && item.photos.length) thumb=`<img class="card-thumb" src="${item.photos[0]}">`;
     else thumb=`<div class="card-type-icon" style="background:${meta.color}22; color:${meta.color};">${meta.icon}</div>`;
 
     let tagsHtml = item.tagIds.map(tid=>{ const t=tagById(tid); return t?`<span class="tag-chip">${escapeHtml(t.label)}</span>`:''; }).join('');
     if(searching && item.tagIds.length===0) tagsHtml += `<span class="tag-chip">Входящие</span>`;
-    if(item.link) tagsHtml += `<span class="tag-chip">🔗 ${escapeHtml(domainOf(item.link))}</span>`;
-    if(item.photo) tagsHtml += `<span class="tag-chip">🖼 фото</span>`;
-    if(item.file) tagsHtml += `<span class="tag-chip">📎 ${escapeHtml((item.file.name||'файл').slice(0,22))}</span>`;
+    (item.links||[]).forEach(l=>{ tagsHtml += `<a href="${escapeHtml(l)}" target="_blank" rel="noopener" class="tag-chip card-link-chip">🔗 ${escapeHtml(domainOf(l))}</a>`; });
+    if(item.photos && item.photos.length) tagsHtml += `<span class="tag-chip">🖼 ${item.photos.length>1?item.photos.length+' фото':'фото'}</span>`;
+    (item.files||[]).forEach(f=>{ tagsHtml += `<a href="${f.dataUrl}" download="${escapeHtml(f.name)}" class="tag-chip card-link-chip">📎 ${escapeHtml((f.name||'файл').slice(0,18))}</a>`; });
     if(item.checklist && item.checklist.length){
       const done=item.checklist.filter(c=>c.done).length;
       tagsHtml += `<span class="tag-chip">☑ ${done}/${item.checklist.length}</span>`;
@@ -1055,7 +1069,8 @@ function renderList(){
       tagsHtml += `<span class="tag-chip" style="color:${overdue?'var(--gold)':'var(--muted)'};">⏰ ${formatDate(item.reminderAt)}</span>`;
     }
 
-    const titleText = item.title || (item.text||'').slice(0,60) || (item.link?domainOf(item.link):'') || '(без названия)';
+    const firstLink = item.links && item.links[0];
+    const titleText = item.title || (item.text||'').slice(0,60) || (firstLink?domainOf(firstLink):'') || '(без названия)';
     card.innerHTML = `
       ${thumb}
       <div class="card-body">
@@ -1070,6 +1085,7 @@ function renderList(){
     if(item.kind==='task'){
       card.querySelector('.task-check-btn').onclick=(e)=>{ e.stopPropagation(); card.dataset.justDragged='1'; toggleTaskDone(item); };
     }
+    card.querySelectorAll('.card-link-chip').forEach(a=>{ a.onclick=(e)=>{ e.stopPropagation(); }; });
     card.querySelector('.share-btn').onclick=(e)=>{ e.stopPropagation(); shareItem(item); };
     card.onclick=()=>{ if(card.dataset.justDragged){ delete card.dataset.justDragged; return; } openItemModal(item); };
     makeCardDraggable(card, item);
@@ -1102,9 +1118,9 @@ function renderTrashList(){
     const meta=TYPE_META[item.kind] || TYPE_META.note;
     const card=document.createElement('div'); card.className='card';
     let thumb='';
-    if(item.photo) thumb=`<img class="card-thumb" src="${item.photo}" style="opacity:.5;">`;
+    if(item.photos && item.photos.length) thumb=`<img class="card-thumb" src="${item.photos[0]}" style="opacity:.5;">`;
     else thumb=`<div class="card-type-icon" style="background:${meta.color}15; color:${meta.color}88;">${meta.icon}</div>`;
-    const titleText = item.title || (item.text||'').slice(0,60) || (item.link?domainOf(item.link):'') || '(без названия)';
+    const titleText = item.title || (item.text||'').slice(0,60) || ((item.links&&item.links[0])?domainOf(item.links[0]):'') || '(без названия)';
     card.style.opacity='.75';
     card.innerHTML = `
       ${thumb}
@@ -1255,7 +1271,7 @@ function makeCardDraggable(card, item){
         started=true;
         ghost=document.createElement('div');
         ghost.className='drag-ghost';
-        ghost.textContent='✎ '+((item.title||item.text||item.link||'запись').slice(0,36));
+        ghost.textContent='✎ '+((item.title||item.text||(item.links&&item.links[0])||'запись').slice(0,36));
         document.body.appendChild(ghost);
         document.body.classList.add('dragging-active');
       }
@@ -1289,7 +1305,7 @@ function applyDragTag(item, targetId){
   const fresh = ITEMS.find(it=>it.id===item.id);
   if(!fresh) return;
   if(targetId==='trash'){
-    if(!confirm('Переместить «'+((fresh.title||fresh.text||fresh.link||'запись').slice(0,40))+'» в корзину?')) return;
+    if(!confirm('Переместить «'+((fresh.title||fresh.text||(fresh.links&&fresh.links[0])||'запись').slice(0,40))+'» в корзину?')) return;
     fresh.trashed=true; fresh.trashedAt=Date.now();
     flashSaved('в корзине');
     ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
@@ -1319,8 +1335,9 @@ function applyDragTag(item, targetId){
 let editingItemId=null;
 let currentType='note';
 let modalTagIds=new Set();
-let modalPhotoData='';
-let modalFileData=null;
+let modalLinks=[];
+let modalPhotos=[];
+let modalFiles=[];
 let currentChecklist=[];
 
 function setModalType(type){
@@ -1343,42 +1360,45 @@ function updateTaskDoneFromChecklist(){
     hint.textContent = '';
   }
 }
-function setLinkAttachmentVisible(show){
-  document.getElementById('content-link-wrap').classList.toggle('hidden', !show);
-  document.getElementById('add-link-btn').classList.toggle('hidden', show);
-  if(!show) document.getElementById('f-link').value='';
-}
-function setPhotoAttachmentVisible(show){
-  document.getElementById('content-photo-wrap').classList.toggle('hidden', !show);
-  document.getElementById('add-photo-btn').classList.toggle('hidden', show);
-  if(!show){
-    modalPhotoData='';
-    const prev=document.getElementById('f-preview'); prev.src=''; prev.classList.add('hidden');
-  }
-}
 function humanFileSize(bytes){
   if(bytes<1024) return bytes+' Б';
   if(bytes<1024*1024) return Math.round(bytes/1024)+' КБ';
   return (bytes/1024/1024).toFixed(1)+' МБ';
 }
-function setDocAttachmentVisible(show){
-  document.getElementById('content-doc-wrap').classList.toggle('hidden', !show);
-  document.getElementById('add-doc-btn').classList.toggle('hidden', show);
-  if(!show){
-    modalFileData=null;
-    document.getElementById('doc-preview').classList.add('hidden');
-  }
+
+function renderLinksList(){
+  const box=document.getElementById('links-list');
+  box.innerHTML='';
+  modalLinks.forEach((url, idx)=>{
+    const row=document.createElement('div'); row.className='attach-row';
+    row.innerHTML=`<span>🔗</span><input type="url" value="${escapeHtml(url)}" placeholder="https://…"><a class="attach-open" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Открыть">↗</a><button type="button" class="icon-btn" title="Убрать">✕</button>`;
+    const input=row.querySelector('input'), openA=row.querySelector('.attach-open'), rm=row.querySelector('.icon-btn');
+    input.oninput=(e)=>{ modalLinks[idx]=e.target.value; openA.href=e.target.value; };
+    rm.onclick=()=>{ modalLinks.splice(idx,1); renderLinksList(); };
+    box.appendChild(row);
+  });
 }
-function renderDocPreview(){
-  const box=document.getElementById('doc-preview');
-  if(!modalFileData){ box.classList.add('hidden'); return; }
-  box.classList.remove('hidden');
-  const nameEl=document.getElementById('doc-preview-name');
-  nameEl.textContent = modalFileData.name;
-  nameEl.href = modalFileData.dataUrl;
-  nameEl.download = modalFileData.name;
-  document.getElementById('doc-preview-size').textContent = humanFileSize(modalFileData.size);
+function renderPhotosList(){
+  const box=document.getElementById('photos-list');
+  box.innerHTML='';
+  modalPhotos.forEach((src, idx)=>{
+    const wrap=document.createElement('div'); wrap.className='photo-thumb-wrap';
+    wrap.innerHTML=`<img src="${src}"><button type="button" class="icon-btn" title="Убрать">✕</button>`;
+    wrap.querySelector('button').onclick=()=>{ modalPhotos.splice(idx,1); renderPhotosList(); };
+    box.appendChild(wrap);
+  });
 }
+function renderDocsList(){
+  const box=document.getElementById('docs-list');
+  box.innerHTML='';
+  modalFiles.forEach((f, idx)=>{
+    const row=document.createElement('div'); row.className='attach-row';
+    row.innerHTML=`<span>📎</span><a class="content-link" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" href="${f.dataUrl}" download="${escapeHtml(f.name)}">${escapeHtml(f.name)}</a><span class="mono" style="font-size:10.5px; color:var(--dim);">${humanFileSize(f.size)}</span><button type="button" class="icon-btn" title="Убрать">✕</button>`;
+    row.querySelector('button').onclick=()=>{ modalFiles.splice(idx,1); renderDocsList(); };
+    box.appendChild(row);
+  });
+}
+
 
 function renderChecklist(){
   const box=document.getElementById('checklist-items');
@@ -1438,24 +1458,10 @@ function openItemModal(item){
   document.getElementById('f-title').value = item ? item.title : '';
   document.getElementById('f-content').value = item ? (item.text||'') : '';
 
-  document.getElementById('f-link').value = item ? (item.link||'') : '';
-  setLinkAttachmentVisible(!!(item && item.link));
-
-  modalPhotoData = item ? (item.photo||'') : '';
-  const preview = document.getElementById('f-preview');
-  if(modalPhotoData){ preview.src=modalPhotoData; preview.classList.remove('hidden'); }
-  else{ preview.src=''; preview.classList.add('hidden'); }
-  setPhotoAttachmentVisible(!!modalPhotoData);
-  document.getElementById('add-link-btn').classList.remove('hidden');
-  document.getElementById('add-photo-btn').classList.remove('hidden');
-  document.getElementById('add-doc-btn').classList.remove('hidden');
-  if(item && item.link) document.getElementById('add-link-btn').classList.add('hidden');
-  if(item && item.photo) document.getElementById('add-photo-btn').classList.add('hidden');
-  if(item && item.file) document.getElementById('add-doc-btn').classList.add('hidden');
-
-  modalFileData = item && item.file ? item.file : null;
-  renderDocPreview();
-  setDocAttachmentVisible(!!modalFileData);
+  modalLinks = item && item.links ? item.links.slice() : [];
+  modalPhotos = item && item.photos ? item.photos.slice() : [];
+  modalFiles = item && item.files ? item.files.map(f=>({...f})) : [];
+  renderLinksList(); renderPhotosList(); renderDocsList();
 
   document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
   document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
@@ -1476,12 +1482,14 @@ document.querySelectorAll('#type-picker .type-opt').forEach(opt=>{
   opt.onclick=()=>{ setModalType(opt.dataset.type); };
 });
 
-document.getElementById('add-link-btn').onclick=()=>{ setLinkAttachmentVisible(true); setTimeout(()=>document.getElementById('f-link').focus(),0); };
-document.getElementById('remove-link-btn').onclick=()=>setLinkAttachmentVisible(false);
-document.getElementById('add-photo-btn').onclick=()=>{ setPhotoAttachmentVisible(true); };
-document.getElementById('cancel-photo-btn').onclick=()=>setPhotoAttachmentVisible(false);
-document.getElementById('add-doc-btn').onclick=()=>{ setDocAttachmentVisible(true); };
-document.getElementById('cancel-doc-btn').onclick=()=>setDocAttachmentVisible(false);
+document.getElementById('add-link-btn').onclick=()=>{
+  modalLinks.push('');
+  renderLinksList();
+  const inputs=document.querySelectorAll('#links-list input');
+  if(inputs.length) inputs[inputs.length-1].focus();
+};
+document.getElementById('add-photo-btn').onclick=()=>document.getElementById('f-file').click();
+document.getElementById('add-doc-btn').onclick=()=>document.getElementById('f-doc-input').click();
 
 function processPhotoBlob(blob){
   const reader=new FileReader();
@@ -1493,9 +1501,8 @@ function processPhotoBlob(blob){
       if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
       canvas.width=w; canvas.height=h;
       canvas.getContext('2d').drawImage(img,0,0,w,h);
-      modalPhotoData=canvas.toDataURL('image/jpeg',0.72);
-      setPhotoAttachmentVisible(true);
-      const prev=document.getElementById('f-preview'); prev.src=modalPhotoData; prev.classList.remove('hidden');
+      modalPhotos.push(canvas.toDataURL('image/jpeg',0.72));
+      renderPhotosList();
       flashSaved('фото добавлено');
     };
     img.src=ev.target.result;
@@ -1503,41 +1510,41 @@ function processPhotoBlob(blob){
   reader.readAsDataURL(blob);
 }
 
-document.getElementById('file-drop').onclick=()=>document.getElementById('f-file').click();
 document.getElementById('f-file').onchange=(e)=>{
-  const file=e.target.files[0]; if(!file) return;
-  processPhotoBlob(file);
+  Array.from(e.target.files||[]).forEach(processPhotoBlob);
+  e.target.value='';
 };
 
 document.getElementById('item-modal-overlay').addEventListener('paste', (e)=>{
   if(document.getElementById('item-modal-overlay').classList.contains('hidden')) return;
   const items = e.clipboardData && e.clipboardData.items;
   if(!items) return;
+  let handled=false;
   for(const it of items){
     if(it.type && it.type.startsWith('image/')){
       const blob = it.getAsFile();
-      if(blob){ e.preventDefault(); processPhotoBlob(blob); }
-      break;
+      if(blob){ processPhotoBlob(blob); handled=true; }
     }
   }
+  if(handled) e.preventDefault();
 });
 
 const MAX_DOC_BYTES = 20*1024*1024;
-document.getElementById('doc-drop').onclick=()=>document.getElementById('f-doc-input').click();
 document.getElementById('f-doc-input').onchange=(e)=>{
-  const file=e.target.files[0]; if(!file) return;
-  if(file.size > MAX_DOC_BYTES){
-    alert('Файл слишком большой ('+humanFileSize(file.size)+') — локальное хранилище рассчитано максимум на 20 МБ на файл. Для больших файлов лучше загрузить их в облако самостоятельно и прикрепить сюда ссылку.');
-    e.target.value='';
-    return;
-  }
-  const reader=new FileReader();
-  reader.onload=(ev)=>{
-    modalFileData = {name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:ev.target.result};
-    renderDocPreview();
-  };
-  reader.onerror=()=>{ alert('Не удалось прочитать файл.'); };
-  reader.readAsDataURL(file);
+  Array.from(e.target.files||[]).forEach(file=>{
+    if(file.size > MAX_DOC_BYTES){
+      alert('Файл «'+file.name+'» слишком большой ('+humanFileSize(file.size)+') — локальное хранилище рассчитано максимум на 20 МБ на файл. Для больших файлов лучше загрузить их в облако самостоятельно и прикрепить ссылку.');
+      return;
+    }
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      modalFiles.push({name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:ev.target.result});
+      renderDocsList();
+    };
+    reader.onerror=()=>{ alert('Не удалось прочитать файл «'+file.name+'».'); };
+    reader.readAsDataURL(file);
+  });
+  e.target.value='';
 };
 
 document.getElementById('insert-bullet-btn').onclick=()=>insertAtCursor(document.getElementById('f-content'),'• ');
@@ -1632,14 +1639,11 @@ document.getElementById('restore-item-btn').onclick=()=>{
 document.getElementById('save-item-btn').onclick=()=>{
   const title=document.getElementById('f-title').value.trim();
   const text=document.getElementById('f-content').value.trim();
-  const link=document.getElementById('content-link-wrap').classList.contains('hidden') ? '' : document.getElementById('f-link').value.trim();
-  const photo=document.getElementById('content-photo-wrap').classList.contains('hidden') ? '' : modalPhotoData;
-  const file=document.getElementById('content-doc-wrap').classList.contains('hidden') ? null : modalFileData;
+  const links = modalLinks.map(l=>l.trim()).filter(Boolean);
+  const photos = modalPhotos.slice();
+  const files = modalFiles.slice();
 
-  if(!title && !text && !link && !photo && !file){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото или файл.'); return; }
-  if(!document.getElementById('content-photo-wrap').classList.contains('hidden') && !photo){ alert('Выберите изображение или уберите вложение «Фото».'); return; }
-  if(!document.getElementById('content-link-wrap').classList.contains('hidden') && !link){ alert('Впишите ссылку или уберите вложение «Ссылка».'); return; }
-  if(!document.getElementById('content-doc-wrap').classList.contains('hidden') && !file){ alert('Выберите файл или уберите вложение «Файл».'); return; }
+  if(!title && !text && !links.length && !photos.length && !files.length){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото или файл.'); return; }
 
   const reminderVal=document.getElementById('f-reminder').value;
   const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
@@ -1649,7 +1653,7 @@ document.getElementById('save-item-btn').onclick=()=>{
   const base = editingItemId ? ITEMS.find(it=>it.id===editingItemId) : null;
   const newItem = {
     id: editingItemId || uid(),
-    kind: currentType, title, text, link, photo, file,
+    kind: currentType, title, text, links, photos, files,
     taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
     tagIds: Array.from(modalTagIds),
     checklist: cleanChecklist,
@@ -1886,8 +1890,43 @@ document.getElementById('search-input').oninput=(e)=>{ searchQuery=e.target.valu
 })();
 
 const mobileBtn=document.getElementById('mobile-menu-btn');
-mobileBtn.onclick=()=>{ document.getElementById('sidebar').classList.toggle('mobile-open'); };
-document.getElementById('item-list').addEventListener('click', ()=>{ document.getElementById('sidebar').classList.remove('mobile-open'); });
+const sidebarEl=document.getElementById('sidebar');
+const backdropEl=document.getElementById('sidebar-backdrop');
+function openMobileSidebar(){ sidebarEl.classList.add('mobile-open'); backdropEl.classList.add('show'); }
+function closeMobileSidebar(){ sidebarEl.classList.remove('mobile-open'); backdropEl.classList.remove('show'); }
+mobileBtn.onclick=()=>{ sidebarEl.classList.contains('mobile-open') ? closeMobileSidebar() : openMobileSidebar(); };
+backdropEl.onclick=closeMobileSidebar;
+document.getElementById('item-list').addEventListener('click', closeMobileSidebar);
+
+(function(){
+  let startX=null, startY=null, dx=0, tracking=false;
+  sidebarEl.addEventListener('touchstart', (e)=>{
+    if(window.innerWidth>720 || !sidebarEl.classList.contains('mobile-open')) return;
+    tracking=true; dx=0;
+    startX=e.touches[0].clientX; startY=e.touches[0].clientY;
+    sidebarEl.style.transition='none';
+  }, {passive:true});
+  sidebarEl.addEventListener('touchmove', (e)=>{
+    if(!tracking) return;
+    dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if(Math.abs(dy) > Math.abs(dx)) return; // вертикальный скролл — не мешаем
+    if(dx<0){ sidebarEl.style.transform = `translateX(${dx}px)`; }
+  }, {passive:true});
+  sidebarEl.addEventListener('touchend', ()=>{
+    if(!tracking) return;
+    tracking=false;
+    sidebarEl.style.transition='';
+    sidebarEl.style.transform='';
+    if(dx < -60) closeMobileSidebar();
+  });
+})();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
 
 loadData();
 </script>
