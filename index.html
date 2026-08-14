@@ -244,7 +244,7 @@
     <div class="pinned-block" id="pinned-block"></div>
     <div class="section-label">Структура</div>
     <div id="tree-scroll"></div>
-    <div class="sidebar-footer"><button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап</button></div>
+    <div class="sidebar-footer"><button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап <span id="backup-pending-dot" class="hidden mono" style="color:var(--gold);" title="Есть изменения, ещё не сохранённые на Google Диск">●</span></button></div>
   </div>
   <div id="resizer"></div>
   <div id="main">
@@ -628,6 +628,7 @@ async function driveUploadBackup(silent){
     SETTINGS.driveBackupAt = Date.now();
     await saveSettings();
     pendingDriveBackup=false;
+    updateBackupStatusIndicator();
     if(!silent) flashSaved('бэкап на Google Диске');
     renderDriveField();
   }catch(err){
@@ -661,6 +662,7 @@ async function driveDownloadBackup(){
     }
     SETTINGS.driveBackupFileId = fileId;
     await saveTags(); await saveItems(); await saveSettings();
+    if(replace){ pendingDriveBackup=false; updateBackupStatusIndicator(); }
     render();
     renderDriveField();
     alert('Восстановлено с Google Диска. Если это было ошибкой — в Настройках теперь есть кнопка «Отменить восстановление».');
@@ -685,9 +687,16 @@ async function undoLastRestore(){
     alert('Не удалось отменить: '+err.message);
   }
 }
+function updateBackupStatusIndicator(){
+  const dot = document.getElementById('backup-pending-dot');
+  if(!dot) return;
+  dot.classList.toggle('hidden', !(pendingDriveBackup && SETTINGS.gcalClientId));
+}
 function scheduleAutoBackup(){
-  if(!SETTINGS.driveAutoBackup) return;
+  if(!SETTINGS.gcalClientId) return;
   pendingDriveBackup = true;
+  updateBackupStatusIndicator();
+  if(!SETTINGS.driveAutoBackup) return;
   clearTimeout(driveBackupDebounce);
   driveBackupDebounce = setTimeout(()=>{ if(gcalIsConnected()) driveUploadBackup(true); }, 60000);
 }
