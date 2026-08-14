@@ -80,6 +80,13 @@
   .section-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.08em; color:var(--dim); text-transform:uppercase; padding:10px 10px 4px 10px; }
 
   .sidebar-footer{ border-top:1px solid var(--border); padding:10px 12px; display:flex; gap:8px; }
+  #backup-status-top{
+    display:flex; align-items:center; gap:7px; background:var(--panel-2); border:1px solid var(--border);
+    border-radius:20px; padding:6px 12px; cursor:pointer; font-size:12.5px; color:var(--muted); flex:none;
+    font-family:inherit;
+  }
+  #backup-status-top:hover{ border-color:var(--dim); }
+  #backup-status-top-dot{ width:12px; height:12px; border-radius:50%; flex:none; display:inline-block; }
   .btn{ font-family:inherit; font-size:12.5px; font-weight:500; color:var(--text); background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:7px 10px; cursor:pointer; display:flex; align-items:center; gap:6px; }
   .btn:hover{ border-color:var(--dim); }
   .btn-accent{ background:var(--teal); color:#0c1615; border-color:var(--teal); font-weight:600; }
@@ -220,6 +227,9 @@
     .section-label{ font-size:11px; }
     .search-input{ font-size:14.5px; }
     .btn{ font-size:13.5px; }
+    .backup-status-top-label{ display:none; }
+    #backup-status-top{ padding:7px; }
+    #backup-status-top-dot{ width:13px; height:13px; }
   }
 </style>
 </head>
@@ -244,10 +254,7 @@
     <div class="pinned-block" id="pinned-block"></div>
     <div class="section-label">Структура</div>
     <div id="tree-scroll"></div>
-    <div class="sidebar-footer" style="flex-direction:column; gap:6px; align-items:stretch;">
-      <button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап</button>
-      <button type="button" class="hidden" id="backup-status-line" style="background:none; border:none; padding:2px 4px; font-size:11px; text-align:left; cursor:pointer; color:var(--muted); display:flex; align-items:center; gap:5px;"></button>
-    </div>
+    <div class="sidebar-footer"><button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап</button></div>
   </div>
   <div id="resizer"></div>
   <div id="main">
@@ -257,6 +264,10 @@
         <div><div id="main-title">Входящие</div><div id="main-sub"></div></div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
+        <button type="button" class="hidden" id="backup-status-top" title="">
+          <span id="backup-status-top-dot"></span>
+          <span id="backup-status-top-text" class="backup-status-top-label"></span>
+        </button>
         <button class="btn btn-ghost btn-small" id="mobile-menu-btn" style="display:none;">☰</button>
         <button class="btn btn-accent" id="new-item-btn">＋ Добавить</button>
       </div>
@@ -692,17 +703,25 @@ async function undoLastRestore(){
   }
 }
 function updateBackupStatusIndicator(){
-  const el = document.getElementById('backup-status-line');
-  if(!el) return;
-  if(!SETTINGS.gcalClientId){ el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
+  const btn = document.getElementById('backup-status-top');
+  const dot = document.getElementById('backup-status-top-dot');
+  const text = document.getElementById('backup-status-top-text');
+  if(!btn) return;
+  if(!SETTINGS.gcalClientId){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
   if(!gcalIsConnected()){
-    el.innerHTML = `<span style="color:var(--red);">●</span> Google отключён — нужен вход`;
+    dot.style.background='var(--red)';
+    text.textContent='Google отключён';
+    btn.title='Google отключён — нужен повторный вход. Нажмите, чтобы открыть настройки.';
   } else if(pendingDriveBackup){
-    el.innerHTML = `<span style="color:var(--gold);">●</span> Google подключён · есть несохранённое`;
+    dot.style.background='var(--gold)';
+    text.textContent='Не сохранено';
+    btn.title='Есть изменения, ещё не отправленные на Google Диск. Нажмите, чтобы открыть настройки.';
   } else {
+    dot.style.background='#3ecf7a';
+    text.textContent='Бэкап свежий';
     const when = SETTINGS.driveBackupAt ? formatDate(SETTINGS.driveBackupAt) : '';
-    el.innerHTML = `<span style="color:#3ecf7a;">●</span> Google подключён · бэкап свежий${when ? ' ('+when+')' : ''}`;
+    btn.title = (when ? 'Последний бэкап: '+when : 'Бэкап свежий') + '. Нажмите, чтобы открыть настройки.';
   }
 }
 function scheduleAutoBackup(){
@@ -1898,7 +1917,7 @@ function renderPassField(){
 function openSettingsModal(){ renderPassField(); renderGcalField(); renderDriveField(); document.getElementById('settings-modal-overlay').classList.remove('hidden'); }
 function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); updateBackupStatusIndicator(); }
 document.getElementById('settings-btn').onclick=openSettingsModal;
-document.getElementById('backup-status-line').onclick=openSettingsModal;
+document.getElementById('backup-status-top').onclick=openSettingsModal;
 document.getElementById('wipe-device-btn').onclick=async ()=>{
   if(!confirm('Это сотрёт ВСЕ заметки, задачи и настройки на этом устройстве (в этом браузере). Бэкап на Google Диске и события в Google Календаре останутся нетронутыми.\n\nПродолжить?')) return;
   if(!confirm('Точно? Локальную копию на этом устройстве потом не вернуть — только повторным восстановлением с Google Диска.')) return;
