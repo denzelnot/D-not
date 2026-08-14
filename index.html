@@ -244,7 +244,10 @@
     <div class="pinned-block" id="pinned-block"></div>
     <div class="section-label">Структура</div>
     <div id="tree-scroll"></div>
-    <div class="sidebar-footer"><button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап <span id="backup-pending-dot" class="hidden mono" style="color:var(--gold);" title="Есть изменения, ещё не сохранённые на Google Диск">●</span></button></div>
+    <div class="sidebar-footer" style="flex-direction:column; gap:6px; align-items:stretch;">
+      <button class="btn btn-ghost btn-small btn-block" id="settings-btn">⚙ Настройки и бэкап</button>
+      <button type="button" class="hidden" id="backup-status-line" style="background:none; border:none; padding:2px 4px; font-size:11px; text-align:left; cursor:pointer; color:var(--muted); display:flex; align-items:center; gap:5px;"></button>
+    </div>
   </div>
   <div id="resizer"></div>
   <div id="main">
@@ -465,6 +468,7 @@ function initGcalClientIfNeeded(){
         gcalTokenExpiry = Date.now() + (resp.expires_in*1000 - 60000);
         persistGcalToken();
         renderGcalField();
+        updateBackupStatusIndicator();
         flashSaved('Google подключён');
       }
     }
@@ -541,7 +545,7 @@ function renderGcalField(){
       GCAL_CLIENT_ID = val;
       gcalTokenClient = null;
       initGcalClientIfNeeded();
-      renderGcalField(); renderDriveField();
+      renderGcalField(); renderDriveField(); updateBackupStatusIndicator();
     };
   } else {
     GCAL_CLIENT_ID = SETTINGS.gcalClientId;
@@ -559,7 +563,7 @@ function renderGcalField(){
       delete SETTINGS.gcalClientId; await saveSettings();
       gcalAccessToken=null; gcalTokenClient=null; GCAL_CLIENT_ID=null; gcalTokenExpiry=0;
       try{ await idbSet('gcal_token', ''); }catch(e){}
-      renderGcalField(); renderDriveField();
+      renderGcalField(); renderDriveField(); updateBackupStatusIndicator();
     };
   }
 }
@@ -688,9 +692,18 @@ async function undoLastRestore(){
   }
 }
 function updateBackupStatusIndicator(){
-  const dot = document.getElementById('backup-pending-dot');
-  if(!dot) return;
-  dot.classList.toggle('hidden', !(pendingDriveBackup && SETTINGS.gcalClientId));
+  const el = document.getElementById('backup-status-line');
+  if(!el) return;
+  if(!SETTINGS.gcalClientId){ el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  if(!gcalIsConnected()){
+    el.innerHTML = `<span style="color:var(--red);">●</span> Google отключён — нужен вход`;
+  } else if(pendingDriveBackup){
+    el.innerHTML = `<span style="color:var(--gold);">●</span> Google подключён · есть несохранённое`;
+  } else {
+    const when = SETTINGS.driveBackupAt ? formatDate(SETTINGS.driveBackupAt) : '';
+    el.innerHTML = `<span style="color:#3ecf7a;">●</span> Google подключён · бэкап свежий${when ? ' ('+when+')' : ''}`;
+  }
 }
 function scheduleAutoBackup(){
   if(!SETTINGS.gcalClientId) return;
@@ -840,10 +853,13 @@ async function loadData(){
   try{ const s=await idbGet('settings'); SETTINGS = s?JSON.parse(s):{}; }catch(e){ SETTINGS={}; }
   if(SETTINGS.gcalClientId) GCAL_CLIENT_ID = SETTINGS.gcalClientId;
   if(SETTINGS.passHash) showLockScreen(); else render();
+  updateBackupStatusIndicator();
   setInterval(checkReminders, 30000);
+  setInterval(updateBackupStatusIndicator, 20000);
   const restored = await restorePersistedGcalToken();
   if(restored){ renderGcalField(); renderDriveField(); }
   else{ attemptSilentGoogleReconnect(); }
+  updateBackupStatusIndicator();
 }
 function attemptSilentGoogleReconnect(){
   if(!SETTINGS.gcalClientId) return;
@@ -1880,8 +1896,9 @@ function renderPassField(){
   }
 }
 function openSettingsModal(){ renderPassField(); renderGcalField(); renderDriveField(); document.getElementById('settings-modal-overlay').classList.remove('hidden'); }
-function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); }
+function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); updateBackupStatusIndicator(); }
 document.getElementById('settings-btn').onclick=openSettingsModal;
+document.getElementById('backup-status-line').onclick=openSettingsModal;
 document.getElementById('wipe-device-btn').onclick=async ()=>{
   if(!confirm('Это сотрёт ВСЕ заметки, задачи и настройки на этом устройстве (в этом браузере). Бэкап на Google Диске и события в Google Календаре останутся нетронутыми.\n\nПродолжить?')) return;
   if(!confirm('Точно? Локальную копию на этом устройстве потом не вернуть — только повторным восстановлением с Google Диска.')) return;
