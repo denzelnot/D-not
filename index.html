@@ -597,6 +597,7 @@ async function driveEnsureFolder(){
   await saveSettings();
   return folder.id;
 }
+let pendingDriveBackup=false;
 async function driveUploadBackup(silent){
   if(!gcalIsConnected()){ if(!silent) alert('Сначала подключите Google в Настройках.'); return; }
   const payload = JSON.stringify({tags:TAGS, items:ITEMS, exportedAt:new Date().toISOString()}, null, 2);
@@ -626,6 +627,7 @@ async function driveUploadBackup(silent){
     SETTINGS.driveBackupFileId = fileId;
     SETTINGS.driveBackupAt = Date.now();
     await saveSettings();
+    pendingDriveBackup=false;
     if(!silent) flashSaved('бэкап на Google Диске');
     renderDriveField();
   }catch(err){
@@ -684,10 +686,20 @@ async function undoLastRestore(){
   }
 }
 function scheduleAutoBackup(){
-  if(!SETTINGS.driveAutoBackup || !gcalIsConnected()) return;
+  if(!SETTINGS.driveAutoBackup) return;
+  pendingDriveBackup = true;
   clearTimeout(driveBackupDebounce);
-  driveBackupDebounce = setTimeout(()=>{ driveUploadBackup(true); }, 60000);
+  driveBackupDebounce = setTimeout(()=>{ if(gcalIsConnected()) driveUploadBackup(true); }, 60000);
 }
+window.addEventListener('online', ()=>{
+  if(pendingDriveBackup && SETTINGS.driveAutoBackup && gcalIsConnected()) driveUploadBackup(true);
+});
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden' && pendingDriveBackup && SETTINGS.driveAutoBackup && gcalIsConnected()){
+    clearTimeout(driveBackupDebounce);
+    driveUploadBackup(true);
+  }
+});
 async function renderDriveField(){
   const wrap = document.getElementById('drive-field');
   if(!wrap) return;
