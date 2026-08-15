@@ -172,6 +172,8 @@
   .photo-thumb-wrap{ position:relative; width:64px; height:64px; border-radius:6px; overflow:hidden; border:1px solid var(--border); flex:none; }
   .photo-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
   .photo-thumb-wrap .icon-btn{ position:absolute; top:2px; right:2px; background:rgba(8,9,11,.7); color:#fff; width:18px; height:18px; }
+  @keyframes pulse-rec{ 0%,100%{ opacity:1; } 50%{ opacity:.3; } }
+  .attach-row audio{ width:100%; margin-top:6px; height:32px; }
   .file-drop:hover{ border-color:var(--teal-dim); color:var(--muted); }
   .preview-img{ max-width:100%; max-height:200px; border-radius:6px; margin-top:10px; display:block; }
 
@@ -323,6 +325,7 @@
           <button type="button" class="btn btn-small btn-ghost" id="insert-bullet-btn">• Список</button>
           <button type="button" class="btn btn-small btn-ghost" id="insert-number-btn">1. Нумерованный</button>
           <button type="button" class="btn btn-small btn-ghost" id="insert-checklist-btn">☑ Чек-лист</button>
+          <button type="button" class="btn btn-small btn-ghost hidden" id="voice-input-btn">🎙️ Голосом</button>
         </div>
         <textarea id="f-content" rows="5" placeholder="Текст, описание…"></textarea>
         <label class="checkbox-label hidden" id="taskdone-wrap"><input type="checkbox" id="f-taskdone"> Задача выполнена <span class="hint" id="taskdone-hint" style="margin:0;"></span></label>
@@ -334,13 +337,22 @@
           <button type="button" class="btn btn-small btn-ghost" id="add-link-btn">🔗 Добавить ссылку</button>
           <button type="button" class="btn btn-small btn-ghost" id="add-photo-btn">🖼 Добавить фото</button>
           <button type="button" class="btn btn-small btn-ghost" id="add-doc-btn">📎 Добавить файл</button>
+          <button type="button" class="btn btn-small btn-ghost" id="add-audio-btn">🎤 Записать аудио</button>
         </div>
         <input type="file" id="f-file" accept="image/*" multiple style="display:none;">
         <input type="file" id="f-doc-input" multiple style="display:none;">
 
+        <div class="hidden" id="audio-recorder-panel" style="display:flex; align-items:center; gap:10px; background:var(--panel-2); border:1px solid var(--red); border-radius:var(--radius); padding:8px 12px; margin-top:10px;">
+          <span style="width:9px; height:9px; border-radius:50%; background:var(--red); flex:none; animation:pulse-rec 1s infinite;"></span>
+          <span id="audio-rec-timer" class="mono" style="flex:1;">00:00</span>
+          <button type="button" class="btn btn-small btn-danger" id="audio-rec-stop-btn">⏹ Остановить</button>
+          <button type="button" class="btn btn-small btn-ghost" id="audio-rec-cancel-btn">Отмена</button>
+        </div>
+
         <div id="links-list" style="margin-top:10px;"></div>
         <div id="photos-list" style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;"></div>
         <div id="docs-list" style="margin-top:10px;"></div>
+        <div id="audio-list" style="margin-top:10px;"></div>
       </div>
 
       <div class="field" id="checklist-wrap">
@@ -919,9 +931,10 @@ function migrateItem(it){
   const links = Array.isArray(base.links) ? base.links : (base.link ? [base.link] : []);
   const photos = Array.isArray(base.photos) ? base.photos : (base.photo ? [base.photo] : []);
   const files = Array.isArray(base.files) ? base.files : (base.file ? [base.file] : []);
+  const audio = Array.isArray(base.audio) ? base.audio : [];
   return {
     id: base.id, kind: base.kind, title: base.title||'', text: base.text||'',
-    links, photos, files,
+    links, photos, files, audio,
     taskDone: !!base.taskDone, tagIds: base.tagIds||[], checklist: base.checklist||[],
     reminderAt: base.reminderAt||null, reminderNotified: !!base.reminderNotified,
     gcalSync: !!base.gcalSync, gcalEventId: base.gcalEventId||null,
@@ -999,6 +1012,7 @@ async function shareItem(item){
   if(item.links && item.links.length) text += item.links.join('\n')+'\n';
   if(item.photos && item.photos.length) text += '[фото прикреплено в D-Not: '+item.photos.length+' шт.]\n';
   if(item.files && item.files.length) text += item.files.map(f=>'[файл: '+f.name+']').join('\n')+'\n';
+  if(item.audio && item.audio.length) text += '[голосовых заметок: '+item.audio.length+']\n';
   if(item.checklist && item.checklist.length){ text += item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n')+'\n'; }
   if(tagsTxt) text += '\nМетки: '+tagsTxt;
   text = text.trim();
@@ -1181,6 +1195,7 @@ function renderList(){
     (item.links||[]).forEach(l=>{ tagsHtml += `<a href="${escapeHtml(l)}" target="_blank" rel="noopener" class="tag-chip card-link-chip">🔗 ${escapeHtml(domainOf(l))}</a>`; });
     if(item.photos && item.photos.length) tagsHtml += `<span class="tag-chip">🖼 ${item.photos.length>1?item.photos.length+' фото':'фото'}</span>`;
     (item.files||[]).forEach(f=>{ tagsHtml += `<a href="${f.dataUrl}" download="${escapeHtml(f.name)}" class="tag-chip card-link-chip">📎 ${escapeHtml((f.name||'файл').slice(0,18))}</a>`; });
+    if(item.audio && item.audio.length) tagsHtml += `<span class="tag-chip">🎤 ${item.audio.length>1?item.audio.length+' аудио':formatDuration(item.audio[0].duration)}</span>`;
     if(item.checklist && item.checklist.length){
       const done=item.checklist.filter(c=>c.done).length;
       tagsHtml += `<span class="tag-chip">☑ ${done}/${item.checklist.length}</span>`;
@@ -1459,6 +1474,7 @@ let modalTagIds=new Set();
 let modalLinks=[];
 let modalPhotos=[];
 let modalFiles=[];
+let modalAudio=[];
 let currentChecklist=[];
 
 function setModalType(type){
@@ -1516,6 +1532,21 @@ function renderDocsList(){
     const row=document.createElement('div'); row.className='attach-row';
     row.innerHTML=`<span>📎</span><a class="content-link" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" href="${f.dataUrl}" download="${escapeHtml(f.name)}">${escapeHtml(f.name)}</a><span class="mono" style="font-size:10.5px; color:var(--dim);">${humanFileSize(f.size)}</span><button type="button" class="icon-btn" title="Убрать">✕</button>`;
     row.querySelector('button').onclick=()=>{ modalFiles.splice(idx,1); renderDocsList(); };
+    box.appendChild(row);
+  });
+}
+function formatDuration(sec){
+  sec = sec||0;
+  const mm=String(Math.floor(sec/60)).padStart(2,'0'), ss=String(sec%60).padStart(2,'0');
+  return mm+':'+ss;
+}
+function renderAudioList(){
+  const box=document.getElementById('audio-list');
+  box.innerHTML='';
+  modalAudio.forEach((a, idx)=>{
+    const row=document.createElement('div'); row.className='attach-row'; row.style.flexDirection='column'; row.style.alignItems='stretch';
+    row.innerHTML=`<div style="display:flex; align-items:center; gap:8px;"><span>🎤</span><span style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.name)}</span><span class="mono" style="font-size:10.5px; color:var(--dim);">${formatDuration(a.duration)}</span><button type="button" class="icon-btn" title="Убрать">✕</button></div><audio controls src="${a.dataUrl}"></audio>`;
+    row.querySelector('button').onclick=()=>{ modalAudio.splice(idx,1); renderAudioList(); };
     box.appendChild(row);
   });
 }
@@ -1582,7 +1613,8 @@ function openItemModal(item){
   modalLinks = item && item.links ? item.links.slice() : [];
   modalPhotos = item && item.photos ? item.photos.slice() : [];
   modalFiles = item && item.files ? item.files.map(f=>({...f})) : [];
-  renderLinksList(); renderPhotosList(); renderDocsList();
+  modalAudio = item && item.audio ? item.audio.map(a=>({...a})) : [];
+  renderLinksList(); renderPhotosList(); renderDocsList(); renderAudioList();
 
   document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
   document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
@@ -1597,7 +1629,17 @@ function openItemModal(item){
 
   document.getElementById('item-modal-overlay').classList.remove('hidden');
 }
-function closeItemModal(){ document.getElementById('item-modal-overlay').classList.add('hidden'); editingItemId=null; }
+function closeItemModal(){
+  document.getElementById('item-modal-overlay').classList.add('hidden');
+  editingItemId=null;
+  if(speechRecognition && speechActive) speechRecognition.stop();
+  if(mediaRecorder && mediaRecorder.state!=='inactive'){
+    recordCancelled=true;
+    clearInterval(recordTimerInterval);
+    document.getElementById('audio-recorder-panel').classList.add('hidden');
+    mediaRecorder.stop();
+  }
+}
 
 document.querySelectorAll('#type-picker .type-opt').forEach(opt=>{
   opt.onclick=()=>{ setModalType(opt.dataset.type); };
@@ -1611,6 +1653,109 @@ document.getElementById('add-link-btn').onclick=()=>{
 };
 document.getElementById('add-photo-btn').onclick=()=>document.getElementById('f-file').click();
 document.getElementById('add-doc-btn').onclick=()=>document.getElementById('f-doc-input').click();
+
+/* ---------- Запись аудио ---------- */
+let mediaRecorder=null, recordedChunks=[], recordStartTime=0, recordTimerInterval=null, mediaStream=null, recordCancelled=false;
+const MAX_RECORD_MS = 10*60*1000;
+
+document.getElementById('add-audio-btn').onclick=async ()=>{
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert('Этот браузер не поддерживает запись звука.');
+    return;
+  }
+  try{
+    mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){
+    alert('Не удалось получить доступ к микрофону — проверьте разрешения браузера для этого сайта.');
+    return;
+  }
+  let mimeType='';
+  ['audio/webm;codecs=opus','audio/webm','audio/mp4'].some(t=>{
+    if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)){ mimeType=t; return true; }
+    return false;
+  });
+  recordedChunks=[]; recordCancelled=false;
+  try{
+    mediaRecorder = new MediaRecorder(mediaStream, mimeType?{mimeType}:undefined);
+  }catch(e){
+    alert('Запись звука не поддерживается этим браузером.');
+    mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null;
+    return;
+  }
+  mediaRecorder.ondataavailable=(e)=>{ if(e.data && e.data.size>0) recordedChunks.push(e.data); };
+  mediaRecorder.onstop=()=>{
+    if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+    if(recordCancelled || recordedChunks.length===0) return;
+    const blob = new Blob(recordedChunks, {type: mimeType||'audio/webm'});
+    const durationSec = Math.max(1, Math.round((Date.now()-recordStartTime)/1000));
+    const reader = new FileReader();
+    reader.onload=(ev)=>{
+      modalAudio.push({name:'Голосовая заметка '+new Date().toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), dataUrl:ev.target.result, duration:durationSec, size:blob.size});
+      renderAudioList();
+    };
+    reader.readAsDataURL(blob);
+  };
+  mediaRecorder.start();
+  recordStartTime=Date.now();
+  document.getElementById('audio-recorder-panel').classList.remove('hidden');
+  document.getElementById('audio-rec-timer').textContent='00:00';
+  recordTimerInterval=setInterval(()=>{
+    const elapsed=Date.now()-recordStartTime;
+    document.getElementById('audio-rec-timer').textContent=formatDuration(Math.floor(elapsed/1000));
+    if(elapsed>=MAX_RECORD_MS){ flashSaved('лимит записи — 10 минут'); stopRecording(); }
+  }, 250);
+};
+function stopRecording(){
+  clearInterval(recordTimerInterval);
+  document.getElementById('audio-recorder-panel').classList.add('hidden');
+  if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop();
+}
+document.getElementById('audio-rec-stop-btn').onclick=stopRecording;
+document.getElementById('audio-rec-cancel-btn').onclick=()=>{
+  recordCancelled=true;
+  clearInterval(recordTimerInterval);
+  document.getElementById('audio-recorder-panel').classList.add('hidden');
+  if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop();
+};
+
+/* ---------- Голосовой ввод текста ---------- */
+let speechRecognition=null, speechActive=false, speechBaseText='';
+function setupSpeechRecognition(){
+  const btn=document.getElementById('voice-input-btn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ return; } // кнопка остаётся скрытой — браузер не поддерживает
+  btn.classList.remove('hidden');
+  speechRecognition = new SR();
+  speechRecognition.lang='ru-RU';
+  speechRecognition.continuous=true;
+  speechRecognition.interimResults=true;
+  speechRecognition.onstart=()=>{
+    speechActive=true;
+    btn.textContent='⏹ Стоп';
+    btn.classList.add('btn-danger');
+    speechBaseText=document.getElementById('f-content').value;
+  };
+  speechRecognition.onresult=(e)=>{
+    let finalText='', interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) finalText+=t; else interim+=t;
+    }
+    if(finalText){ speechBaseText=(speechBaseText?speechBaseText.replace(/\s+$/,'')+' ':'')+finalText.trim()+' '; }
+    document.getElementById('f-content').value=(speechBaseText+interim).trim();
+  };
+  speechRecognition.onerror=(e)=>{ if(e.error!=='no-speech' && e.error!=='aborted') alert('Ошибка распознавания речи: '+e.error); };
+  speechRecognition.onend=()=>{
+    speechActive=false;
+    btn.textContent='🎙️ Голосом';
+    btn.classList.remove('btn-danger');
+  };
+  btn.onclick=()=>{
+    if(speechActive){ speechRecognition.stop(); }
+    else{ try{ speechRecognition.start(); }catch(e){} }
+  };
+}
+setupSpeechRecognition();
 
 function processPhotoBlob(blob){
   const reader=new FileReader();
@@ -1763,8 +1908,9 @@ document.getElementById('save-item-btn').onclick=()=>{
   const links = modalLinks.map(l=>l.trim()).filter(Boolean);
   const photos = modalPhotos.slice();
   const files = modalFiles.slice();
+  const audio = modalAudio.slice();
 
-  if(!title && !text && !links.length && !photos.length && !files.length){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото или файл.'); return; }
+  if(!title && !text && !links.length && !photos.length && !files.length && !audio.length){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото, файл или аудио.'); return; }
 
   const reminderVal=document.getElementById('f-reminder').value;
   const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
@@ -1774,7 +1920,7 @@ document.getElementById('save-item-btn').onclick=()=>{
   const base = editingItemId ? ITEMS.find(it=>it.id===editingItemId) : null;
   const newItem = {
     id: editingItemId || uid(),
-    kind: currentType, title, text, links, photos, files,
+    kind: currentType, title, text, links, photos, files, audio,
     taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
     tagIds: Array.from(modalTagIds),
     checklist: cleanChecklist,
