@@ -325,7 +325,6 @@
           <button type="button" class="btn btn-small btn-ghost" id="insert-bullet-btn">• Список</button>
           <button type="button" class="btn btn-small btn-ghost" id="insert-number-btn">1. Нумерованный</button>
           <button type="button" class="btn btn-small btn-ghost" id="insert-checklist-btn">☑ Чек-лист</button>
-          <button type="button" class="btn btn-small btn-ghost hidden" id="voice-input-btn">🎙️ Голосом</button>
         </div>
         <textarea id="f-content" rows="5" placeholder="Текст, описание…"></textarea>
         <label class="checkbox-label hidden" id="taskdone-wrap"><input type="checkbox" id="f-taskdone"> Задача выполнена <span class="hint" id="taskdone-hint" style="margin:0;"></span></label>
@@ -1632,7 +1631,6 @@ function openItemModal(item){
 function closeItemModal(){
   document.getElementById('item-modal-overlay').classList.add('hidden');
   editingItemId=null;
-  if(speechRecognition && speechActive) speechRecognition.stop();
   if(mediaRecorder && mediaRecorder.state!=='inactive'){
     recordCancelled=true;
     clearInterval(recordTimerInterval);
@@ -1717,45 +1715,6 @@ document.getElementById('audio-rec-cancel-btn').onclick=()=>{
   document.getElementById('audio-recorder-panel').classList.add('hidden');
   if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop();
 };
-
-/* ---------- Голосовой ввод текста ---------- */
-let speechRecognition=null, speechActive=false, speechBaseText='';
-function setupSpeechRecognition(){
-  const btn=document.getElementById('voice-input-btn');
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ return; } // кнопка остаётся скрытой — браузер не поддерживает
-  btn.classList.remove('hidden');
-  speechRecognition = new SR();
-  speechRecognition.lang='ru-RU';
-  speechRecognition.continuous=true;
-  speechRecognition.interimResults=true;
-  speechRecognition.onstart=()=>{
-    speechActive=true;
-    btn.textContent='⏹ Стоп';
-    btn.classList.add('btn-danger');
-    speechBaseText=document.getElementById('f-content').value;
-  };
-  speechRecognition.onresult=(e)=>{
-    let finalText='', interim='';
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      const t=e.results[i][0].transcript;
-      if(e.results[i].isFinal) finalText+=t; else interim+=t;
-    }
-    if(finalText){ speechBaseText=(speechBaseText?speechBaseText.replace(/\s+$/,'')+' ':'')+finalText.trim()+' '; }
-    document.getElementById('f-content').value=(speechBaseText+interim).trim();
-  };
-  speechRecognition.onerror=(e)=>{ if(e.error!=='no-speech' && e.error!=='aborted') alert('Ошибка распознавания речи: '+e.error); };
-  speechRecognition.onend=()=>{
-    speechActive=false;
-    btn.textContent='🎙️ Голосом';
-    btn.classList.remove('btn-danger');
-  };
-  btn.onclick=()=>{
-    if(speechActive){ speechRecognition.stop(); }
-    else{ try{ speechRecognition.start(); }catch(e){} }
-  };
-}
-setupSpeechRecognition();
 
 function processPhotoBlob(blob){
   const reader=new FileReader();
