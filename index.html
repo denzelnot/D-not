@@ -87,6 +87,10 @@
   }
   #backup-status-top:hover{ border-color:var(--dim); }
   #backup-status-top-dot{ width:12px; height:12px; border-radius:50%; flex:none; display:inline-block; }
+  #drive-conflict-banner{
+    background:#2a2350; border-bottom:1px solid #8b7cf6; color:#e4e0ff;
+    padding:10px 24px; display:flex; align-items:center; justify-content:space-between; gap:14px; font-size:13px;
+  }
   .btn{ font-family:inherit; font-size:12.5px; font-weight:500; color:var(--text); background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:7px 10px; cursor:pointer; display:flex; align-items:center; gap:6px; }
   .btn:hover{ border-color:var(--dim); }
   .btn-accent{ background:var(--teal); color:#0c1615; border-color:var(--teal); font-weight:600; }
@@ -230,6 +234,13 @@
     .backup-status-top-label{ display:none; }
     #backup-status-top{ padding:7px; }
     #backup-status-top-dot{ width:13px; height:13px; }
+
+    .field input[type=text], .field input[type=url], .field input[type=password],
+    .field input[type=datetime-local], .field textarea, .field select{ font-size:16px; }
+    #f-content{ font-size:16px; line-height:1.5; }
+    .field label{ font-size:12.5px; }
+    .checklist-row input[type=text]{ font-size:15px; }
+    .checkbox-label{ font-size:14.5px; }
   }
 </style>
 </head>
@@ -258,6 +269,13 @@
   </div>
   <div id="resizer"></div>
   <div id="main">
+    <div class="hidden" id="drive-conflict-banner">
+      <span>🟣 На Google Диске есть более новая версия — похоже, с другого устройства. Рекомендуем обновить, прежде чем продолжать.</span>
+      <div style="display:flex; gap:8px; flex:none;">
+        <button class="btn btn-small btn-accent" id="conflict-restore-btn">Обновить сейчас</button>
+        <button class="btn btn-small btn-ghost" id="conflict-dismiss-btn">Скрыть</button>
+      </div>
+    </div>
     <div id="main-header">
       <div id="main-title-wrap">
         <span id="main-code" class="mono"></span>
@@ -480,6 +498,7 @@ function initGcalClientIfNeeded(){
         persistGcalToken();
         renderGcalField();
         updateBackupStatusIndicator();
+        checkDriveFreshness();
         flashSaved('Google подключён');
       }
     }
@@ -613,8 +632,34 @@ async function driveEnsureFolder(){
   return folder.id;
 }
 let pendingDriveBackup=false;
+let driveRemoteNewer=false;
+let driveFreshnessCheckInFlight=false;
+async function driveGetModifiedTime(){
+  const fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+  if(!fileId) return null;
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  return data.modifiedTime || null;
+}
+async function checkDriveFreshness(){
+  if(!gcalIsConnected() || driveFreshnessCheckInFlight) return;
+  driveFreshnessCheckInFlight=true;
+  try{
+    const remoteModified = await driveGetModifiedTime();
+    const knownTs = SETTINGS.driveBackupAt;
+    driveRemoteNewer = !!(remoteModified && knownTs && new Date(remoteModified).getTime() > new Date(knownTs).getTime() + 5000);
+  }catch(e){ /* сетевой сбой проверки — тихо игнорируем, попробуем в следующий раз */ }
+  driveFreshnessCheckInFlight=false;
+  updateBackupStatusIndicator();
+  renderConflictBanner();
+}
 async function driveUploadBackup(silent){
   if(!gcalIsConnected()){ if(!silent) alert('Сначала подключите Google в Настройках.'); return; }
+  if(driveRemoteNewer){
+    if(silent) return; // тихая автоматика никогда не лезет поверх чужих изменений
+    if(!confirm('На Google Диске есть более новая версия (похоже, с другого устройства), которую вы ещё не смотрели на этом устройстве.\n\nВсё равно ПЕРЕЗАПИСАТЬ её тем, что видите здесь? Обычно лучше сначала нажать «Восстановить с Диска».')) return;
+  }
   const payload = JSON.stringify({tags:TAGS, items:ITEMS, exportedAt:new Date().toISOString()}, null, 2);
   try{
     let fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
@@ -643,7 +688,9 @@ async function driveUploadBackup(silent){
     SETTINGS.driveBackupAt = Date.now();
     await saveSettings();
     pendingDriveBackup=false;
+    driveRemoteNewer=false;
     updateBackupStatusIndicator();
+    renderConflictBanner();
     if(!silent) flashSaved('бэкап на Google Диске');
     renderDriveField();
   }catch(err){
@@ -676,8 +723,12 @@ async function driveDownloadBackup(){
       data.items.map(migrateItem).forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
     }
     SETTINGS.driveBackupFileId = fileId;
+    SETTINGS.driveBackupAt = Date.now();
     await saveTags(); await saveItems(); await saveSettings();
-    if(replace){ pendingDriveBackup=false; updateBackupStatusIndicator(); }
+    driveRemoteNewer=false;
+    if(replace){ pendingDriveBackup=false; }
+    updateBackupStatusIndicator();
+    renderConflictBanner();
     render();
     renderDriveField();
     alert('Восстановлено с Google Диска. Если это было ошибкой — в Настройках теперь есть кнопка «Отменить восстановление».');
@@ -713,6 +764,10 @@ function updateBackupStatusIndicator(){
     dot.style.background='var(--red)';
     text.textContent='Google отключён';
     btn.title='Google отключён — нужен повторный вход. Нажмите, чтобы открыть настройки.';
+  } else if(driveRemoteNewer){
+    dot.style.background='#8b7cf6';
+    text.textContent='Есть версия новее';
+    btn.title='На Google Диске есть более новая версия — похоже, с другого устройства. Нажмите, чтобы открыть настройки и восстановить её.';
   } else if(pendingDriveBackup){
     dot.style.background='var(--gold)';
     text.textContent='Не сохранено';
@@ -724,6 +779,12 @@ function updateBackupStatusIndicator(){
     btn.title = (when ? 'Последний бэкап: '+when : 'Бэкап свежий') + '. Нажмите, чтобы открыть настройки.';
   }
 }
+function renderConflictBanner(){
+  const el = document.getElementById('drive-conflict-banner');
+  if(!el) return;
+  el.classList.toggle('hidden', !driveRemoteNewer || bannerDismissed);
+}
+let bannerDismissed=false;
 function scheduleAutoBackup(){
   if(!SETTINGS.gcalClientId) return;
   pendingDriveBackup = true;
@@ -732,13 +793,16 @@ function scheduleAutoBackup(){
   clearTimeout(driveBackupDebounce);
   driveBackupDebounce = setTimeout(()=>{ if(gcalIsConnected()) driveUploadBackup(true); }, 60000);
 }
-window.addEventListener('online', ()=>{
+window.addEventListener('online', async ()=>{
+  await checkDriveFreshness();
   if(pendingDriveBackup && SETTINGS.driveAutoBackup && gcalIsConnected()) driveUploadBackup(true);
 });
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='hidden' && pendingDriveBackup && SETTINGS.driveAutoBackup && gcalIsConnected()){
     clearTimeout(driveBackupDebounce);
     driveUploadBackup(true);
+  } else if(document.visibilityState==='visible' && gcalIsConnected()){
+    checkDriveFreshness();
   }
 });
 async function renderDriveField(){
@@ -875,8 +939,9 @@ async function loadData(){
   updateBackupStatusIndicator();
   setInterval(checkReminders, 30000);
   setInterval(updateBackupStatusIndicator, 20000);
+  setInterval(checkDriveFreshness, 120000);
   const restored = await restorePersistedGcalToken();
-  if(restored){ renderGcalField(); renderDriveField(); }
+  if(restored){ renderGcalField(); renderDriveField(); checkDriveFreshness(); }
   else{ attemptSilentGoogleReconnect(); }
   updateBackupStatusIndicator();
 }
@@ -1918,6 +1983,8 @@ function openSettingsModal(){ renderPassField(); renderGcalField(); renderDriveF
 function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); updateBackupStatusIndicator(); }
 document.getElementById('settings-btn').onclick=openSettingsModal;
 document.getElementById('backup-status-top').onclick=openSettingsModal;
+document.getElementById('conflict-restore-btn').onclick=()=>{ driveDownloadBackup(); };
+document.getElementById('conflict-dismiss-btn').onclick=()=>{ bannerDismissed=true; renderConflictBanner(); };
 document.getElementById('wipe-device-btn').onclick=async ()=>{
   if(!confirm('Это сотрёт ВСЕ заметки, задачи и настройки на этом устройстве (в этом браузере). Бэкап на Google Диске и события в Google Календаре останутся нетронутыми.\n\nПродолжить?')) return;
   if(!confirm('Точно? Локальную копию на этом устройстве потом не вернуть — только повторным восстановлением с Google Диска.')) return;
