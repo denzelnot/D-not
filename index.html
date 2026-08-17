@@ -1716,27 +1716,83 @@ document.getElementById('audio-rec-cancel-btn').onclick=()=>{
   if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop();
 };
 
-function processPhotoBlob(blob){
-  const reader=new FileReader();
-  reader.onload=(ev)=>{
-    const img=new Image();
-    img.onload=()=>{
-      const canvas=document.createElement('canvas'); const maxDim=1100;
-      let w=img.width, h=img.height;
-      if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
-      canvas.width=w; canvas.height=h;
-      canvas.getContext('2d').drawImage(img,0,0,w,h);
-      modalPhotos.push(canvas.toDataURL('image/jpeg',0.72));
-      renderPhotosList();
-      flashSaved('фото добавлено');
+async function tryCompressViaBitmap(blob){
+  if(!window.createImageBitmap) return null;
+  let bitmap;
+  try{ bitmap = await createImageBitmap(blob, {resizeWidth:1100, resizeQuality:'medium'}); }
+  catch(e){
+    try{ bitmap = await createImageBitmap(blob); }
+    catch(e2){ return null; }
+  }
+  const maxDim=1100;
+  let w=bitmap.width, h=bitmap.height;
+  if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+  const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+  canvas.getContext('2d').drawImage(bitmap,0,0,w,h);
+  if(bitmap.close) bitmap.close();
+  return canvas.toDataURL('image/jpeg',0.72);
+}
+function tryCompressViaImg(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('read'));
+    reader.onload=(ev)=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('decode'));
+      img.onload=()=>{
+        const canvas=document.createElement('canvas'); const maxDim=1100;
+        let w=img.width, h=img.height;
+        if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',0.72));
+      };
+      img.src=ev.target.result;
     };
-    img.src=ev.target.result;
-  };
-  reader.readAsDataURL(blob);
+    reader.readAsDataURL(blob);
+  });
+}
+function readAsDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('read'));
+    reader.onload=(ev)=>resolve(ev.target.result);
+    reader.readAsDataURL(blob);
+  });
+}
+async function processPhotoBlob(blob, originalName){
+  const name = originalName || 'photo.jpg';
+
+  let compressed = null;
+  try{ compressed = await tryCompressViaBitmap(blob); }catch(e){}
+  if(!compressed){
+    try{ compressed = await tryCompressViaImg(blob); }catch(e){}
+  }
+  if(compressed){
+    modalPhotos.push(compressed);
+    renderPhotosList();
+    flashSaved('фото добавлено');
+    return;
+  }
+
+  // Ни один способ сжатия не сработал — скорее всего формат, который браузер
+  // не умеет декодировать (например HEIC). Не теряем фото — прикладываем как обычный файл.
+  if(blob.size > MAX_DOC_BYTES){
+    alert('Не удалось сжать это изображение (возможно, формат вроде HEIC), а сам файл слишком большой ('+humanFileSize(blob.size)+') для прикрепления как есть — максимум 20 МБ. Попробуйте пересохранить фото в JPEG перед загрузкой.');
+    return;
+  }
+  try{
+    const dataUrl = await readAsDataUrl(blob);
+    modalFiles.push({name, type:blob.type||'application/octet-stream', size:blob.size, dataUrl});
+    renderDocsList();
+    flashSaved('добавлено как файл (без сжатия)');
+  }catch(e){
+    alert('Не удалось прочитать этот файл.');
+  }
 }
 
 document.getElementById('f-file').onchange=(e)=>{
-  Array.from(e.target.files||[]).forEach(processPhotoBlob);
+  Array.from(e.target.files||[]).forEach(f=>processPhotoBlob(f, f.name));
   e.target.value='';
 };
 
