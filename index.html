@@ -170,10 +170,20 @@
   .attach-row input[type=url]{ flex:1; background:none; border:none; color:var(--text); font-family:inherit; font-size:13px; outline:none; }
   .attach-row .attach-open{ color:var(--teal); text-decoration:none; font-size:13px; flex:none; }
   .photo-thumb-wrap{ position:relative; width:64px; height:64px; border-radius:6px; overflow:hidden; border:1px solid var(--border); flex:none; }
-  .photo-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .photo-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; cursor:pointer; }
   .photo-thumb-wrap .icon-btn{ position:absolute; top:2px; right:2px; background:rgba(8,9,11,.7); color:#fff; width:18px; height:18px; }
   @keyframes pulse-rec{ 0%,100%{ opacity:1; } 50%{ opacity:.3; } }
   .attach-row audio{ width:100%; margin-top:6px; height:32px; }
+  #lightbox-overlay{
+    position:fixed; inset:0; background:rgba(4,5,6,.94); z-index:300;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  #lightbox-overlay img{ max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  #lightbox-close{
+    position:fixed; top:16px; right:20px; z-index:301; background:rgba(255,255,255,.12); color:#fff;
+    border:none; width:38px; height:38px; border-radius:50%; font-size:18px; cursor:pointer;
+  }
+  #lightbox-close:hover{ background:rgba(255,255,255,.2); }
   .file-drop:hover{ border-color:var(--teal-dim); color:var(--muted); }
   .preview-img{ max-width:100%; max-height:200px; border-radius:6px; margin-top:10px; display:block; }
 
@@ -420,6 +430,11 @@
 </div>
 
 <div class="save-toast" id="save-toast">сохранено</div>
+
+<div class="hidden" id="lightbox-overlay">
+  <button type="button" id="lightbox-close" title="Закрыть">✕</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
 
 <script>
 /* =========================================================
@@ -1220,6 +1235,10 @@ function renderList(){
     if(item.kind==='task'){
       card.querySelector('.task-check-btn').onclick=(e)=>{ e.stopPropagation(); card.dataset.justDragged='1'; toggleTaskDone(item); };
     }
+    if(item.photos && item.photos.length){
+      const thumbImg = card.querySelector('.card-thumb');
+      if(thumbImg){ thumbImg.style.cursor='pointer'; thumbImg.onclick=(e)=>{ e.stopPropagation(); openLightbox(item.photos[0]); }; }
+    }
     card.querySelectorAll('.card-link-chip').forEach(a=>{ a.onclick=(e)=>{ e.stopPropagation(); }; });
     card.querySelector('.share-btn').onclick=(e)=>{ e.stopPropagation(); shareItem(item); };
     card.onclick=()=>{ if(card.dataset.justDragged){ delete card.dataset.justDragged; return; } openItemModal(item); };
@@ -1520,7 +1539,8 @@ function renderPhotosList(){
   modalPhotos.forEach((src, idx)=>{
     const wrap=document.createElement('div'); wrap.className='photo-thumb-wrap';
     wrap.innerHTML=`<img src="${src}"><button type="button" class="icon-btn" title="Убрать">✕</button>`;
-    wrap.querySelector('button').onclick=()=>{ modalPhotos.splice(idx,1); renderPhotosList(); };
+    wrap.querySelector('img').onclick=()=>openLightbox(src);
+    wrap.querySelector('button').onclick=(e)=>{ e.stopPropagation(); modalPhotos.splice(idx,1); renderPhotosList(); };
     box.appendChild(wrap);
   });
 }
@@ -1760,13 +1780,19 @@ function readAsDataUrl(blob){
     reader.readAsDataURL(blob);
   });
 }
+function withTimeout(promise, ms){
+  return new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('timeout')), ms);
+    promise.then(v=>{ clearTimeout(t); resolve(v); }, e=>{ clearTimeout(t); reject(e); });
+  });
+}
 async function processPhotoBlob(blob, originalName){
   const name = originalName || 'photo.jpg';
 
   let compressed = null;
-  try{ compressed = await tryCompressViaBitmap(blob); }catch(e){}
+  try{ compressed = await withTimeout(tryCompressViaBitmap(blob), 15000); }catch(e){}
   if(!compressed){
-    try{ compressed = await tryCompressViaImg(blob); }catch(e){}
+    try{ compressed = await withTimeout(tryCompressViaImg(blob), 15000); }catch(e){}
   }
   if(compressed){
     modalPhotos.push(compressed);
@@ -1775,39 +1801,45 @@ async function processPhotoBlob(blob, originalName){
     return;
   }
 
-  // Ни один способ сжатия не сработал — скорее всего формат, который браузер
-  // не умеет декодировать (например HEIC). Не теряем фото — прикладываем как обычный файл.
+  // Ни один способ сжатия не сработал (или завис дольше 15 секунд) — скорее всего формат,
+  // который браузер не умеет декодировать (например HEIC). Не теряем фото — прикладываем как обычный файл.
   if(blob.size > MAX_DOC_BYTES){
-    alert('Не удалось сжать это изображение (возможно, формат вроде HEIC), а сам файл слишком большой ('+humanFileSize(blob.size)+') для прикрепления как есть — максимум 20 МБ. Попробуйте пересохранить фото в JPEG перед загрузкой.');
+    alert('Не удалось сжать «'+name+'» (возможно, формат вроде HEIC), а сам файл слишком большой ('+humanFileSize(blob.size)+') для прикрепления как есть — максимум 20 МБ. Попробуйте пересохранить фото в JPEG перед загрузкой.');
     return;
   }
   try{
-    const dataUrl = await readAsDataUrl(blob);
+    const dataUrl = await withTimeout(readAsDataUrl(blob), 15000);
     modalFiles.push({name, type:blob.type||'application/octet-stream', size:blob.size, dataUrl});
     renderDocsList();
-    flashSaved('добавлено как файл (без сжатия)');
+    flashSaved('«'+name+'» добавлено как файл (без сжатия)');
   }catch(e){
-    alert('Не удалось прочитать этот файл.');
+    alert('Не удалось прикрепить «'+name+'» — файл повреждён, в неподдерживаемом формате, либо обработка заняла слишком много времени.');
   }
 }
 
-document.getElementById('f-file').onchange=(e)=>{
-  Array.from(e.target.files||[]).forEach(f=>processPhotoBlob(f, f.name));
+document.getElementById('f-file').onchange=async (e)=>{
+  const files = Array.from(e.target.files||[]);
   e.target.value='';
+  for(const f of files){
+    await processPhotoBlob(f, f.name);
+  }
 };
 
-document.getElementById('item-modal-overlay').addEventListener('paste', (e)=>{
+document.getElementById('item-modal-overlay').addEventListener('paste', async (e)=>{
   if(document.getElementById('item-modal-overlay').classList.contains('hidden')) return;
   const items = e.clipboardData && e.clipboardData.items;
   if(!items) return;
-  let handled=false;
+  const blobs=[];
   for(const it of items){
     if(it.type && it.type.startsWith('image/')){
       const blob = it.getAsFile();
-      if(blob){ processPhotoBlob(blob); handled=true; }
+      if(blob) blobs.push(blob);
     }
   }
-  if(handled) e.preventDefault();
+  if(blobs.length) e.preventDefault();
+  for(const blob of blobs){
+    await processPhotoBlob(blob);
+  }
 });
 
 const MAX_DOC_BYTES = 20*1024*1024;
@@ -2212,6 +2244,18 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
   });
 }
+
+function openLightbox(src){
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox-overlay').classList.remove('hidden');
+}
+function closeLightbox(){
+  document.getElementById('lightbox-overlay').classList.add('hidden');
+  document.getElementById('lightbox-img').src = '';
+}
+document.getElementById('lightbox-close').onclick = closeLightbox;
+document.getElementById('lightbox-overlay').onclick = (e)=>{ if(e.target.id==='lightbox-overlay') closeLightbox(); };
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && !document.getElementById('lightbox-overlay').classList.contains('hidden')) closeLightbox(); });
 
 loadData();
 </script>
