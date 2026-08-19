@@ -125,19 +125,6 @@
   .card-snippet{ font-size:12.5px; color:var(--muted); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .card-tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; align-items:center; }
   .tag-chip{ font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--muted); background:var(--panel-2); border:1px solid var(--border); padding:1px 6px; border-radius:9px; white-space:nowrap; }
-  .checklist-chip-btn{ cursor:pointer; }
-  .checklist-chip-btn:hover{ border-color:var(--teal-dim); color:var(--teal); }
-  .inline-checklist{ margin-top:9px; padding-top:9px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
-  .inline-cl-row{ display:flex; align-items:flex-start; gap:8px; font-size:12.5px; cursor:pointer; }
-  .inline-cl-row input{ accent-color:var(--teal); flex:none; margin-top:2px; }
-  .inline-cl-row span.done{ text-decoration:line-through; color:var(--dim); }
-  #kind-filter-bar{ display:flex; gap:6px; padding:12px 24px 0 24px; }
-  .kind-filter-btn{
-    font-family:inherit; font-size:12px; color:var(--muted); background:var(--panel); border:1px solid var(--border);
-    border-radius:14px; padding:4px 12px; cursor:pointer;
-  }
-  .kind-filter-btn:hover{ border-color:var(--dim); }
-  .kind-filter-btn.active{ background:var(--teal-dim); border-color:var(--teal); color:var(--text); }
   .card-thumb{ width:26px;height:26px;border-radius:6px;object-fit:cover; flex:none; margin-top:1px; }
   .share-btn{ margin-left:auto; border-radius:5px; border:1px solid var(--border); background:var(--panel-2); color:var(--dim); display:flex; align-items:center; gap:4px; cursor:pointer; font-size:10.5px; flex:none; padding:3px 7px; font-family:'IBM Plex Mono',monospace; }
   .share-btn:hover{ color:var(--teal); border-color:var(--teal-dim); }
@@ -183,28 +170,10 @@
   .attach-row input[type=url]{ flex:1; background:none; border:none; color:var(--text); font-family:inherit; font-size:13px; outline:none; }
   .attach-row .attach-open{ color:var(--teal); text-decoration:none; font-size:13px; flex:none; }
   .photo-thumb-wrap{ position:relative; width:64px; height:64px; border-radius:6px; overflow:hidden; border:1px solid var(--border); flex:none; }
-  .photo-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; cursor:pointer; }
+  .photo-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
   .photo-thumb-wrap .icon-btn{ position:absolute; top:2px; right:2px; background:rgba(8,9,11,.7); color:#fff; width:18px; height:18px; }
   @keyframes pulse-rec{ 0%,100%{ opacity:1; } 50%{ opacity:.3; } }
   .attach-row audio{ width:100%; margin-top:6px; height:32px; }
-  #lightbox-overlay{
-    position:fixed; inset:0; background:rgba(4,5,6,.94); z-index:300;
-    display:flex; align-items:center; justify-content:center; padding:24px;
-  }
-  #lightbox-overlay img{ max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
-  #lightbox-close{
-    position:fixed; top:16px; right:20px; z-index:301; background:rgba(255,255,255,.12); color:#fff;
-    border:none; width:38px; height:38px; border-radius:50%; font-size:18px; cursor:pointer;
-  }
-  #lightbox-close:hover{ background:rgba(255,255,255,.2); }
-  #file-preview-overlay{
-    position:fixed; inset:0; background:rgba(4,5,6,.96); z-index:300;
-    display:flex; flex-direction:column; align-items:center; padding:16px;
-  }
-  #file-preview-topbar{ width:100%; max-width:1000px; display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; }
-  #file-preview-body{ flex:1; width:100%; max-width:1000px; display:flex; align-items:center; justify-content:center; min-height:0; }
-  #file-preview-body iframe{ width:100%; height:100%; border:none; border-radius:8px; background:#fff; }
-  #file-preview-body video, #file-preview-body img{ max-width:100%; max-height:100%; border-radius:8px; }
   .file-drop:hover{ border-color:var(--teal-dim); color:var(--muted); }
   .preview-img{ max-width:100%; max-height:200px; border-radius:6px; margin-top:10px; display:block; }
 
@@ -323,11 +292,6 @@
         <button class="btn btn-accent" id="new-item-btn">＋ Добавить</button>
       </div>
     </div>
-    <div id="kind-filter-bar">
-      <button type="button" class="kind-filter-btn active" data-kind="all">Все</button>
-      <button type="button" class="kind-filter-btn" data-kind="note">Заметки</button>
-      <button type="button" class="kind-filter-btn" data-kind="task">Задачи</button>
-    </div>
     <div id="item-list"></div>
   </div>
 </div>
@@ -393,17 +357,7 @@
       <div class="field" id="checklist-wrap">
         <label>Чек-лист <span style="text-transform:none; color:var(--dim);">(подпункты с галочками)</span></label>
         <div id="checklist-items"></div>
-        <div class="list-tools">
-          <button type="button" class="btn btn-small btn-ghost" id="add-checklist-item-btn">＋ Добавить пункт</button>
-          <button type="button" class="btn btn-small btn-ghost" id="bulk-checklist-btn">☰ Вставить списком</button>
-        </div>
-        <div class="hidden" id="bulk-checklist-panel" style="margin-top:8px;">
-          <textarea id="bulk-checklist-text" rows="5" placeholder="По одному пункту на строку…"></textarea>
-          <div style="display:flex; gap:8px; margin-top:6px;">
-            <button type="button" class="btn btn-small btn-accent" id="bulk-checklist-apply-btn">Добавить всё</button>
-            <button type="button" class="btn btn-small btn-ghost" id="bulk-checklist-cancel-btn">Отмена</button>
-          </div>
-        </div>
+        <button type="button" class="btn btn-small btn-ghost" id="add-checklist-item-btn">＋ Добавить пункт</button>
       </div>
 
       <div class="field">
@@ -466,19 +420,6 @@
 </div>
 
 <div class="save-toast" id="save-toast">сохранено</div>
-
-<div class="hidden" id="lightbox-overlay">
-  <button type="button" id="lightbox-close" title="Закрыть">✕</button>
-  <img id="lightbox-img" src="" alt="">
-</div>
-
-<div class="hidden" id="file-preview-overlay">
-  <div id="file-preview-topbar">
-    <a id="file-preview-download" class="btn btn-small" download="">⭳ Скачать</a>
-    <button type="button" id="file-preview-close" class="btn btn-small" title="Закрыть">✕ Закрыть</button>
-  </div>
-  <div id="file-preview-body"></div>
-</div>
 
 <script>
 /* =========================================================
@@ -951,7 +892,6 @@ let TAGS=[], ITEMS=[], SETTINGS={};
 let expanded = new Set(['t-20000']);
 let selectedNodeId='inbox';
 let searchQuery='';
-let kindFilter='all';
 
 const TYPE_META = {
   note:{icon:'✎',label:'Заметка',color:'#8ea9ff'},
@@ -1093,19 +1033,6 @@ function toggleTaskDone(item){
   saveItems();
   render();
 }
-let expandedChecklistId=null;
-function toggleInlineChecklistItem(itemId, idx, checked){
-  const fresh = ITEMS.find(it=>it.id===itemId);
-  if(!fresh || !fresh.checklist || !fresh.checklist[idx]) return;
-  fresh.checklist = fresh.checklist.map((c,i)=> i===idx ? {...c, done:checked} : c);
-  const meaningful = fresh.checklist.filter(c=>c.text.trim()!=='');
-  if(fresh.kind==='task' && meaningful.length>0){
-    fresh.taskDone = meaningful.every(c=>c.done);
-  }
-  ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
-  saveItems();
-  render();
-}
 
 /* =========================================================
    НАПОМИНАНИЯ
@@ -1199,22 +1126,21 @@ function currentNodeInfo(){
 }
 function itemsForSelection(){
   const q=searchQuery.trim().toLowerCase();
-  const applyKind = list=> kindFilter==='all' ? list : list.filter(it=>it.kind===kindFilter);
   if(q){
-    return applyKind(ITEMS.filter(it=> !it.trashed && (
+    return ITEMS.filter(it=> !it.trashed && (
       (it.title||'').toLowerCase().includes(q) ||
       (it.text||'').toLowerCase().includes(q) ||
       (it.links||[]).some(l=>l.toLowerCase().includes(q)) ||
       (it.files||[]).some(f=>(f.name||'').toLowerCase().includes(q)) ||
       (it.checklist||[]).some(c=>(c.text||'').toLowerCase().includes(q))
-    ))).slice().sort((a,b)=>b.createdAt-a.createdAt);
+    )).slice().sort((a,b)=>b.createdAt-a.createdAt);
   }
   let list;
   if(selectedNodeId==='inbox') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length===0);
   else if(selectedNodeId==='processed') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length>0);
   else if(selectedNodeId==='trash') list=ITEMS.filter(it=>it.trashed);
   else list=ITEMS.filter(it=>!it.trashed && it.tagIds.includes(selectedNodeId));
-  return applyKind(list).slice().sort((a,b)=> (selectedNodeId==='trash' ? (b.trashedAt||0)-(a.trashedAt||0) : b.createdAt-a.createdAt));
+  return list.slice().sort((a,b)=> (selectedNodeId==='trash' ? (b.trashedAt||0)-(a.trashedAt||0) : b.createdAt-a.createdAt));
 }
 function renderHeader(){
   const codeEl=document.getElementById('main-code');
@@ -1267,11 +1193,11 @@ function renderList(){
     if(searching && item.tagIds.length===0) tagsHtml += `<span class="tag-chip">Входящие</span>`;
     (item.links||[]).forEach(l=>{ tagsHtml += `<a href="${escapeHtml(l)}" target="_blank" rel="noopener" class="tag-chip card-link-chip">🔗 ${escapeHtml(domainOf(l))}</a>`; });
     if(item.photos && item.photos.length) tagsHtml += `<span class="tag-chip">🖼 ${item.photos.length>1?item.photos.length+' фото':'фото'}</span>`;
-    (item.files||[]).forEach((f,fi)=>{ tagsHtml += `<button type="button" class="tag-chip card-link-chip" data-file-idx="${fi}">📎 ${escapeHtml((f.name||'файл').slice(0,18))}</button>`; });
+    (item.files||[]).forEach(f=>{ tagsHtml += `<a href="${f.dataUrl}" download="${escapeHtml(f.name)}" class="tag-chip card-link-chip">📎 ${escapeHtml((f.name||'файл').slice(0,18))}</a>`; });
     if(item.audio && item.audio.length) tagsHtml += `<span class="tag-chip">🎤 ${item.audio.length>1?item.audio.length+' аудио':formatDuration(item.audio[0].duration)}</span>`;
     if(item.checklist && item.checklist.length){
       const done=item.checklist.filter(c=>c.done).length;
-      tagsHtml += `<button type="button" class="tag-chip checklist-chip-btn">☑ ${done}/${item.checklist.length}</button>`;
+      tagsHtml += `<span class="tag-chip">☑ ${done}/${item.checklist.length}</span>`;
     }
     if(item.reminderAt){
       const overdue=item.reminderAt<Date.now();
@@ -1280,12 +1206,6 @@ function renderList(){
 
     const firstLink = item.links && item.links[0];
     const titleText = item.title || (item.text||'').slice(0,60) || (firstLink?domainOf(firstLink):'') || '(без названия)';
-    let expandedChecklistHtml = '';
-    if(expandedChecklistId===item.id && item.checklist && item.checklist.length){
-      expandedChecklistHtml = `<div class="inline-checklist">` + item.checklist.map((c,i)=>`
-        <label class="inline-cl-row"><input type="checkbox" data-idx="${i}" ${c.done?'checked':''}><span class="${c.done?'done':''}">${escapeHtml(c.text)}</span></label>
-      `).join('') + `</div>`;
-    }
     card.innerHTML = `
       ${thumb}
       <div class="card-body">
@@ -1295,31 +1215,12 @@ function renderList(){
         </div>
         ${item.title && item.text ? `<div class="card-snippet">${escapeHtml(snippetOf(item))}</div>` : ''}
         <div class="card-tags">${tagsHtml}<button type="button" class="share-btn" title="Поделиться">⇪ Поделиться</button></div>
-        ${expandedChecklistHtml}
       </div>
     `;
     if(item.kind==='task'){
       card.querySelector('.task-check-btn').onclick=(e)=>{ e.stopPropagation(); card.dataset.justDragged='1'; toggleTaskDone(item); };
     }
-    const chipBtn = card.querySelector('.checklist-chip-btn');
-    if(chipBtn){
-      chipBtn.onclick=(e)=>{ e.stopPropagation(); expandedChecklistId=(expandedChecklistId===item.id)?null:item.id; renderList(); };
-    }
-    card.querySelectorAll('.inline-cl-row').forEach(row=>{
-      row.onclick=(e)=>{ e.stopPropagation(); };
-      const cb=row.querySelector('input');
-      cb.onchange=()=>{ toggleInlineChecklistItem(item.id, parseInt(cb.dataset.idx,10), cb.checked); };
-    });
-    if(item.photos && item.photos.length){
-      const thumbImg = card.querySelector('.card-thumb');
-      if(thumbImg){ thumbImg.style.cursor='pointer'; thumbImg.onclick=(e)=>{ e.stopPropagation(); openLightbox(item.photos[0]); }; }
-    }
-    card.querySelectorAll('.card-link-chip').forEach(a=>{
-      a.onclick=(e)=>{
-        e.stopPropagation();
-        if(a.dataset.fileIdx!==undefined){ e.preventDefault(); const f=item.files[parseInt(a.dataset.fileIdx,10)]; if(f) openFilePreview(f); }
-      };
-    });
+    card.querySelectorAll('.card-link-chip').forEach(a=>{ a.onclick=(e)=>{ e.stopPropagation(); }; });
     card.querySelector('.share-btn').onclick=(e)=>{ e.stopPropagation(); shareItem(item); };
     card.onclick=()=>{ if(card.dataset.justDragged){ delete card.dataset.justDragged; return; } openItemModal(item); };
     makeCardDraggable(card, item);
@@ -1486,9 +1387,7 @@ function renderAgendaList(events){
 
 function render(){
   renderPinned(); renderTree(); renderHeader(); renderList();
-  const hideBar = (selectedNodeId==='calendar' || selectedNodeId==='trash') && !searchQuery.trim();
   document.getElementById('new-item-btn').classList.toggle('hidden', selectedNodeId==='calendar' && !searchQuery.trim());
-  document.getElementById('kind-filter-bar').classList.toggle('hidden', hideBar);
 }
 
 /* =========================================================
@@ -1621,8 +1520,7 @@ function renderPhotosList(){
   modalPhotos.forEach((src, idx)=>{
     const wrap=document.createElement('div'); wrap.className='photo-thumb-wrap';
     wrap.innerHTML=`<img src="${src}"><button type="button" class="icon-btn" title="Убрать">✕</button>`;
-    wrap.querySelector('img').onclick=()=>openLightbox(src);
-    wrap.querySelector('button').onclick=(e)=>{ e.stopPropagation(); modalPhotos.splice(idx,1); renderPhotosList(); };
+    wrap.querySelector('button').onclick=()=>{ modalPhotos.splice(idx,1); renderPhotosList(); };
     box.appendChild(wrap);
   });
 }
@@ -1631,9 +1529,7 @@ function renderDocsList(){
   box.innerHTML='';
   modalFiles.forEach((f, idx)=>{
     const row=document.createElement('div'); row.className='attach-row';
-    const previewable = isPreviewableFile(f) ? ' (просмотр)' : '';
-    row.innerHTML=`<span>📎</span><a class="content-link" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" href="#">${escapeHtml(f.name)}${previewable}</a><span class="mono" style="font-size:10.5px; color:var(--dim);">${humanFileSize(f.size)}</span><button type="button" class="icon-btn" title="Убрать">✕</button>`;
-    row.querySelector('a').onclick=(e)=>{ e.preventDefault(); openFilePreview(f); };
+    row.innerHTML=`<span>📎</span><a class="content-link" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" href="${f.dataUrl}" download="${escapeHtml(f.name)}">${escapeHtml(f.name)}</a><span class="mono" style="font-size:10.5px; color:var(--dim);">${humanFileSize(f.size)}</span><button type="button" class="icon-btn" title="Убрать">✕</button>`;
     row.querySelector('button').onclick=()=>{ modalFiles.splice(idx,1); renderDocsList(); };
     box.appendChild(row);
   });
@@ -1864,19 +1760,13 @@ function readAsDataUrl(blob){
     reader.readAsDataURL(blob);
   });
 }
-function withTimeout(promise, ms){
-  return new Promise((resolve,reject)=>{
-    const t=setTimeout(()=>reject(new Error('timeout')), ms);
-    promise.then(v=>{ clearTimeout(t); resolve(v); }, e=>{ clearTimeout(t); reject(e); });
-  });
-}
 async function processPhotoBlob(blob, originalName){
   const name = originalName || 'photo.jpg';
 
   let compressed = null;
-  try{ compressed = await withTimeout(tryCompressViaBitmap(blob), 15000); }catch(e){}
+  try{ compressed = await tryCompressViaBitmap(blob); }catch(e){}
   if(!compressed){
-    try{ compressed = await withTimeout(tryCompressViaImg(blob), 15000); }catch(e){}
+    try{ compressed = await tryCompressViaImg(blob); }catch(e){}
   }
   if(compressed){
     modalPhotos.push(compressed);
@@ -1885,45 +1775,39 @@ async function processPhotoBlob(blob, originalName){
     return;
   }
 
-  // Ни один способ сжатия не сработал (или завис дольше 15 секунд) — скорее всего формат,
-  // который браузер не умеет декодировать (например HEIC). Не теряем фото — прикладываем как обычный файл.
+  // Ни один способ сжатия не сработал — скорее всего формат, который браузер
+  // не умеет декодировать (например HEIC). Не теряем фото — прикладываем как обычный файл.
   if(blob.size > MAX_DOC_BYTES){
-    alert('Не удалось сжать «'+name+'» (возможно, формат вроде HEIC), а сам файл слишком большой ('+humanFileSize(blob.size)+') для прикрепления как есть — максимум 20 МБ. Попробуйте пересохранить фото в JPEG перед загрузкой.');
+    alert('Не удалось сжать это изображение (возможно, формат вроде HEIC), а сам файл слишком большой ('+humanFileSize(blob.size)+') для прикрепления как есть — максимум 20 МБ. Попробуйте пересохранить фото в JPEG перед загрузкой.');
     return;
   }
   try{
-    const dataUrl = await withTimeout(readAsDataUrl(blob), 15000);
+    const dataUrl = await readAsDataUrl(blob);
     modalFiles.push({name, type:blob.type||'application/octet-stream', size:blob.size, dataUrl});
     renderDocsList();
-    flashSaved('«'+name+'» добавлено как файл (без сжатия)');
+    flashSaved('добавлено как файл (без сжатия)');
   }catch(e){
-    alert('Не удалось прикрепить «'+name+'» — файл повреждён, в неподдерживаемом формате, либо обработка заняла слишком много времени.');
+    alert('Не удалось прочитать этот файл.');
   }
 }
 
-document.getElementById('f-file').onchange=async (e)=>{
-  const files = Array.from(e.target.files||[]);
+document.getElementById('f-file').onchange=(e)=>{
+  Array.from(e.target.files||[]).forEach(f=>processPhotoBlob(f, f.name));
   e.target.value='';
-  for(const f of files){
-    await processPhotoBlob(f, f.name);
-  }
 };
 
-document.getElementById('item-modal-overlay').addEventListener('paste', async (e)=>{
+document.getElementById('item-modal-overlay').addEventListener('paste', (e)=>{
   if(document.getElementById('item-modal-overlay').classList.contains('hidden')) return;
   const items = e.clipboardData && e.clipboardData.items;
   if(!items) return;
-  const blobs=[];
+  let handled=false;
   for(const it of items){
     if(it.type && it.type.startsWith('image/')){
       const blob = it.getAsFile();
-      if(blob) blobs.push(blob);
+      if(blob){ processPhotoBlob(blob); handled=true; }
     }
   }
-  if(blobs.length) e.preventDefault();
-  for(const blob of blobs){
-    await processPhotoBlob(blob);
-  }
+  if(handled) e.preventDefault();
 });
 
 const MAX_DOC_BYTES = 20*1024*1024;
@@ -1995,20 +1879,6 @@ document.getElementById('f-content').addEventListener('keydown', (e)=>{
 });
 
 document.getElementById('add-checklist-item-btn').onclick=addChecklistItem;
-document.getElementById('bulk-checklist-btn').onclick=()=>{
-  document.getElementById('bulk-checklist-panel').classList.remove('hidden');
-  document.getElementById('bulk-checklist-text').value='';
-  document.getElementById('bulk-checklist-text').focus();
-};
-document.getElementById('bulk-checklist-cancel-btn').onclick=()=>{
-  document.getElementById('bulk-checklist-panel').classList.add('hidden');
-};
-document.getElementById('bulk-checklist-apply-btn').onclick=()=>{
-  const lines = document.getElementById('bulk-checklist-text').value.split('\n').map(l=>l.trim()).filter(Boolean);
-  lines.forEach(text=>currentChecklist.push({id:uid(), text, done:false}));
-  document.getElementById('bulk-checklist-panel').classList.add('hidden');
-  renderChecklist();
-};
 
 document.getElementById('f-reminder').addEventListener('change', ()=>{
   if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
@@ -2252,4 +2122,98 @@ function renderPassField(){
   if(SETTINGS.passHash){
     wrap.innerHTML = `<label>Код доступа</label>
       <div class="hint" style="margin-bottom:8px;">Код установлен — при открытии приложения потребуется вводить его.</div>
-      <button class="btn btn-block 
+      <button class="btn btn-block btn-danger" id="remove-pass-btn">Убрать код доступа</button>`;
+    wrap.querySelector('#remove-pass-btn').onclick=async ()=>{
+      if(!confirm('Убрать код доступа?')) return;
+      delete SETTINGS.passHash; await saveSettings(); renderPassField();
+    };
+  } else {
+    wrap.innerHTML = `<label>Код доступа</label>
+      <input type="password" id="new-pass" placeholder="Придумайте код (мин. 4 символа)" autocomplete="new-password" style="margin-bottom:8px;">
+      <button class="btn btn-block btn-accent" id="set-pass-btn">Установить код</button>
+      <div class="hint">Код хранится только на этом устройстве в зашифрованном виде и защищает от случайного открытия приложения посторонним человеком, у которого есть физический доступ к устройству.</div>`;
+    wrap.querySelector('#set-pass-btn').onclick=async ()=>{
+      const val=document.getElementById('new-pass').value;
+      if(val.length<4){ alert('Код должен быть не короче 4 символов.'); return; }
+      SETTINGS.passHash=await sha256(val); await saveSettings(); renderPassField();
+      alert('Код доступа установлен.');
+    };
+  }
+}
+function openSettingsModal(){ renderPassField(); renderGcalField(); renderDriveField(); document.getElementById('settings-modal-overlay').classList.remove('hidden'); }
+function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); updateBackupStatusIndicator(); }
+document.getElementById('settings-btn').onclick=openSettingsModal;
+document.getElementById('backup-status-top').onclick=openSettingsModal;
+document.getElementById('conflict-restore-btn').onclick=()=>{ driveDownloadBackup(); };
+document.getElementById('conflict-dismiss-btn').onclick=()=>{ bannerDismissed=true; renderConflictBanner(); };
+document.getElementById('wipe-device-btn').onclick=async ()=>{
+  if(!confirm('Это сотрёт ВСЕ заметки, задачи и настройки на этом устройстве (в этом браузере). Бэкап на Google Диске и события в Google Календаре останутся нетронутыми.\n\nПродолжить?')) return;
+  if(!confirm('Точно? Локальную копию на этом устройстве потом не вернуть — только повторным восстановлением с Google Диска.')) return;
+  try{
+    await idbClearAll();
+    location.reload();
+  }catch(e){
+    alert('Не удалось очистить: '+e.message);
+  }
+};
+document.getElementById('settings-modal-close').onclick=closeSettingsModal;
+document.getElementById('settings-modal-close2').onclick=closeSettingsModal;
+document.getElementById('settings-modal-overlay').onclick=(e)=>{ if(e.target.id==='settings-modal-overlay') closeSettingsModal(); };
+
+
+/* =========================================================
+   ПОИСК / РЕСАЙЗ / МОБИЛЬНОЕ МЕНЮ
+   ========================================================= */
+document.getElementById('search-input').oninput=(e)=>{ searchQuery=e.target.value; renderHeader(); renderList(); };
+
+(function(){
+  const resizer=document.getElementById('resizer'), sidebar=document.getElementById('sidebar');
+  let dragging=false;
+  resizer.addEventListener('mousedown', ()=>{ dragging=true; resizer.classList.add('active'); document.body.style.userSelect='none'; });
+  window.addEventListener('mousemove', (e)=>{ if(!dragging) return; const w=Math.min(Math.max(e.clientX,230), window.innerWidth*0.6); sidebar.style.width=w+'px'; });
+  window.addEventListener('mouseup', ()=>{ dragging=false; resizer.classList.remove('active'); document.body.style.userSelect=''; });
+})();
+
+const mobileBtn=document.getElementById('mobile-menu-btn');
+const sidebarEl=document.getElementById('sidebar');
+const backdropEl=document.getElementById('sidebar-backdrop');
+function openMobileSidebar(){ sidebarEl.classList.add('mobile-open'); backdropEl.classList.add('show'); }
+function closeMobileSidebar(){ sidebarEl.classList.remove('mobile-open'); backdropEl.classList.remove('show'); }
+mobileBtn.onclick=()=>{ sidebarEl.classList.contains('mobile-open') ? closeMobileSidebar() : openMobileSidebar(); };
+backdropEl.onclick=closeMobileSidebar;
+document.getElementById('item-list').addEventListener('click', closeMobileSidebar);
+
+(function(){
+  let startX=null, startY=null, dx=0, tracking=false;
+  sidebarEl.addEventListener('touchstart', (e)=>{
+    if(window.innerWidth>720 || !sidebarEl.classList.contains('mobile-open')) return;
+    tracking=true; dx=0;
+    startX=e.touches[0].clientX; startY=e.touches[0].clientY;
+    sidebarEl.style.transition='none';
+  }, {passive:true});
+  sidebarEl.addEventListener('touchmove', (e)=>{
+    if(!tracking) return;
+    dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if(Math.abs(dy) > Math.abs(dx)) return; // вертикальный скролл — не мешаем
+    if(dx<0){ sidebarEl.style.transform = `translateX(${dx}px)`; }
+  }, {passive:true});
+  sidebarEl.addEventListener('touchend', ()=>{
+    if(!tracking) return;
+    tracking=false;
+    sidebarEl.style.transition='';
+    sidebarEl.style.transform='';
+    if(dx < -60) closeMobileSidebar();
+  });
+})();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
+
+loadData();
+</script>
+</body>
+</html>
