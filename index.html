@@ -421,6 +421,7 @@
     <div class="modal-footer">
       <div style="display:flex; gap:8px;">
         <button class="btn btn-ghost btn-danger btn-small hidden" id="delete-item-btn">Удалить запись</button>
+        <button class="btn btn-small hidden" id="duplicate-item-btn">⧉ Дублировать</button>
         <button class="btn btn-small hidden" id="restore-item-btn">↺ Восстановить из корзины</button>
       </div>
       <div style="display:flex; gap:8px;">
@@ -1708,6 +1709,7 @@ function openItemModal(item){
   document.getElementById('delete-item-btn').classList.toggle('hidden', !item);
   document.getElementById('delete-item-btn').textContent = item && item.trashed ? 'Удалить навсегда' : 'Удалить запись';
   document.getElementById('restore-item-btn').classList.toggle('hidden', !(item && item.trashed));
+  document.getElementById('duplicate-item-btn').classList.toggle('hidden', !(item && !item.trashed));
   document.getElementById('share-item-btn').classList.toggle('hidden', !item);
 
   document.getElementById('f-title').value = item ? item.title : '';
@@ -2045,6 +2047,37 @@ document.getElementById('restore-item-btn').onclick=()=>{
   if(!editingItemId) return;
   ITEMS = ITEMS.map(x=>x.id===editingItemId ? {...x, trashed:false, trashedAt:null} : x);
   saveItems(); closeItemModal(); render();
+};
+document.getElementById('duplicate-item-btn').onclick=()=>{
+  const it = ITEMS.find(i=>i.id===editingItemId);
+  if(!it) return;
+  const dup = {
+    id: uid(),
+    kind: it.kind,
+    title: it.title,
+    text: it.text,
+    links: (it.links||[]).slice(),
+    photos: (it.photos||[]).slice(),
+    files: (it.files||[]).map(f=>({...f})),
+    audio: [],
+    taskDone: false,
+    tagIds: (it.tagIds||[]).slice(),
+    checklist: (it.checklist||[]).map(c=>({id:uid(), text:c.text, done:false})),
+    reminderAt: null,
+    reminderNotified: false,
+    gcalSync: false,
+    gcalEventId: null,
+    trashed: false,
+    trashedAt: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  ITEMS.push(dup);
+  saveItems();
+  closeItemModal();
+  render();
+  openItemModal(dup);
+  flashSaved('чистый дубликат создан');
 };
 
 document.getElementById('save-item-btn').onclick=()=>{
