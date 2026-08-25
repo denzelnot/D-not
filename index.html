@@ -156,6 +156,10 @@
   .overlay{ position:fixed; inset:0; background:rgba(8,9,11,.6); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
   .modal{ background:var(--panel); border:1px solid var(--border); border-radius:10px; width:100%; max-width:480px; max-height:86vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.5); }
   .modal-wide{ max-width:620px; }
+  @media (min-width: 900px){
+    .modal-wide{ max-width:min(920px, 78vw); max-height:90vh; }
+    .modal-wide #f-content{ min-height:220px; }
+  }
   .modal-header{ padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
   .modal-header h3{ margin:0; font-size:15px; font-weight:700; }
   .modal-body{ padding:16px 18px; overflow-y:auto; }
@@ -194,6 +198,17 @@
   .photo-thumb-wrap .icon-btn{ position:absolute; top:2px; right:2px; background:rgba(8,9,11,.7); color:#fff; width:18px; height:18px; }
   @keyframes pulse-rec{ 0%,100%{ opacity:1; } 50%{ opacity:.3; } }
   .attach-row audio{ width:100%; margin-top:6px; height:32px; }
+  .table-block{ background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:10px; overflow-x:auto; }
+  .table-block table{ border-collapse:collapse; }
+  .table-block td{ border:1px solid var(--border); padding:0; }
+  .table-block td input{
+    width:120px; border:none; background:none; color:var(--text); font-family:inherit; font-size:12.5px;
+    padding:6px 7px; outline:none;
+  }
+  .table-block td input:focus{ background:var(--teal-dim); }
+  .table-block .table-toolbar{ display:flex; gap:6px; margin-top:8px; }
+  .table-row-del{ width:22px; border:none; background:none; color:var(--dim); cursor:pointer; font-size:11px; }
+  .table-row-del:hover{ color:var(--red); }
   #lightbox-overlay{
     position:fixed; inset:0; background:rgba(4,5,6,.94); z-index:300;
     display:flex; align-items:center; justify-content:center; padding:24px;
@@ -390,6 +405,7 @@
           <button type="button" class="btn btn-small btn-ghost" id="add-photo-btn">🖼 Добавить фото</button>
           <button type="button" class="btn btn-small btn-ghost" id="add-doc-btn">📎 Добавить файл</button>
           <button type="button" class="btn btn-small btn-ghost" id="add-audio-btn">🎤 Записать аудио</button>
+          <button type="button" class="btn btn-small btn-ghost" id="add-table-btn">▦ Добавить таблицу</button>
         </div>
         <input type="file" id="f-file" accept="image/*" multiple style="display:none;">
         <input type="file" id="f-doc-input" multiple style="display:none;">
@@ -405,6 +421,7 @@
         <div id="photos-list" style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;"></div>
         <div id="docs-list" style="margin-top:10px;"></div>
         <div id="audio-list" style="margin-top:10px;"></div>
+        <div id="tables-list" style="margin-top:10px;"></div>
       </div>
 
       <div class="field" id="checklist-wrap">
@@ -1040,9 +1057,10 @@ function migrateItem(it){
   const photos = Array.isArray(base.photos) ? base.photos : (base.photo ? [base.photo] : []);
   const files = Array.isArray(base.files) ? base.files : (base.file ? [base.file] : []);
   const audio = Array.isArray(base.audio) ? base.audio : [];
+  const tables = Array.isArray(base.tables) ? base.tables : [];
   return {
     id: base.id, kind: base.kind, title: base.title||'', text: base.text||'',
-    links, photos, files, audio,
+    links, photos, files, audio, tables,
     taskDone: !!base.taskDone, tagIds: base.tagIds||[], checklist: base.checklist||[],
     reminderAt: base.reminderAt||null, reminderNotified: !!base.reminderNotified,
     recurrence: base.recurrence||'none',
@@ -1124,6 +1142,7 @@ async function shareItem(item){
   if(item.links && item.links.length) text += item.links.join('\n')+'\n';
   if(item.files && item.files.length) text += item.files.map(f=>'[файл: '+f.name+']').join('\n')+'\n';
   if(item.audio && item.audio.length) text += '[голосовых заметок: '+item.audio.length+']\n';
+  if(item.tables && item.tables.length) text += '[таблиц: '+item.tables.length+']\n';
   if(item.checklist && item.checklist.length){ text += item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n')+'\n'; }
   if(tagsTxt) text += '\nМетки: '+tagsTxt;
   text = text.trim();
@@ -1428,6 +1447,7 @@ function renderList(){
     if(item.photos && item.photos.length) tagsHtml += `<span class="tag-chip">🖼 ${item.photos.length>1?item.photos.length+' фото':'фото'}</span>`;
     (item.files||[]).forEach((f,fi)=>{ tagsHtml += `<button type="button" class="tag-chip card-link-chip" data-file-idx="${fi}">📎 ${escapeHtml((f.name||'файл').slice(0,18))}</button>`; });
     if(item.audio && item.audio.length) tagsHtml += `<span class="tag-chip">🎤 ${item.audio.length>1?item.audio.length+' аудио':formatDuration(item.audio[0].duration)}</span>`;
+    if(item.tables && item.tables.length) tagsHtml += `<span class="tag-chip">▦ ${item.tables.length>1?item.tables.length+' таблицы':'таблица'}</span>`;
     if(item.checklist && item.checklist.length){
       const done=item.checklist.filter(c=>c.done).length;
       tagsHtml += `<button type="button" class="tag-chip checklist-chip-btn">☑ ${done}/${item.checklist.length}</button>`;
@@ -1760,6 +1780,7 @@ let modalLinks=[];
 let modalPhotos=[];
 let modalFiles=[];
 let modalAudio=[];
+let modalTables=[];
 let currentChecklist=[];
 
 function setModalType(type){
@@ -1839,6 +1860,40 @@ function renderAudioList(){
   });
 }
 
+function renderTablesList(){
+  const box=document.getElementById('tables-list');
+  box.innerHTML='';
+  modalTables.forEach((tbl, ti)=>{
+    const block=document.createElement('div'); block.className='table-block';
+    const table=document.createElement('table');
+    tbl.rows.forEach((row, ri)=>{
+      const tr=document.createElement('tr');
+      row.forEach((cell, ci)=>{
+        const td=document.createElement('td');
+        const input=document.createElement('input');
+        input.type='text'; input.value=cell;
+        input.oninput=(e)=>{ tbl.rows[ri][ci]=e.target.value; };
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+      const delTd=document.createElement('td'); delTd.style.border='none';
+      const delBtn=document.createElement('button'); delBtn.type='button'; delBtn.className='table-row-del'; delBtn.title='Удалить строку'; delBtn.textContent='✕';
+      delBtn.onclick=()=>{ if(tbl.rows.length<=1) return; tbl.rows.splice(ri,1); renderTablesList(); };
+      delTd.appendChild(delBtn);
+      tr.appendChild(delTd);
+      table.appendChild(tr);
+    });
+    block.appendChild(table);
+    const toolbar=document.createElement('div'); toolbar.className='table-toolbar';
+    toolbar.innerHTML=`<button type="button" class="btn btn-small btn-ghost">＋ Строка</button><button type="button" class="btn btn-small btn-ghost">＋ Столбец</button><button type="button" class="btn btn-small btn-ghost" style="color:var(--red);">✕ Удалить таблицу</button>`;
+    const [addRowBtn, addColBtn, delTableBtn] = toolbar.children;
+    addRowBtn.onclick=()=>{ tbl.rows.push(tbl.rows[0].map(()=>'')); renderTablesList(); };
+    addColBtn.onclick=()=>{ tbl.rows.forEach(r=>r.push('')); renderTablesList(); };
+    delTableBtn.onclick=()=>{ if(!confirm('Удалить эту таблицу?')) return; modalTables.splice(ti,1); renderTablesList(); };
+    block.appendChild(toolbar);
+    box.appendChild(block);
+  });
+}
 
 function renderChecklist(){
   const box=document.getElementById('checklist-items');
@@ -1904,7 +1959,8 @@ function openItemModal(item){
   modalPhotos = item && item.photos ? item.photos.slice() : [];
   modalFiles = item && item.files ? item.files.map(f=>({...f})) : [];
   modalAudio = item && item.audio ? item.audio.map(a=>({...a})) : [];
-  renderLinksList(); renderPhotosList(); renderDocsList(); renderAudioList();
+  modalTables = item && item.tables ? item.tables.map(t=>({id:t.id, rows:t.rows.map(r=>r.slice())})) : [];
+  renderLinksList(); renderPhotosList(); renderDocsList(); renderAudioList(); renderTablesList();
 
   document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
   document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
@@ -1948,6 +2004,10 @@ document.getElementById('add-doc-btn').onclick=()=>document.getElementById('f-do
 let mediaRecorder=null, recordedChunks=[], recordStartTime=0, recordTimerInterval=null, mediaStream=null, recordCancelled=false;
 const MAX_RECORD_MS = 10*60*1000;
 
+document.getElementById('add-table-btn').onclick=()=>{
+  modalTables.push({id:uid(), rows:[['','',''],['','',''],['','','']]});
+  renderTablesList();
+};
 document.getElementById('add-audio-btn').onclick=async ()=>{
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     alert('Этот браузер не поддерживает запись звука.');
@@ -2275,6 +2335,7 @@ document.getElementById('duplicate-item-btn').onclick=()=>{
     photos: (it.photos||[]).slice(),
     files: (it.files||[]).map(f=>({...f})),
     audio: [],
+    tables: (it.tables||[]).map(t=>({id:uid(), rows:t.rows.map(r=>r.slice())})),
     taskDone: false,
     tagIds: (it.tagIds||[]).slice(),
     checklist: (it.checklist||[]).map(c=>({id:uid(), text:c.text, done:false})),
@@ -2303,8 +2364,9 @@ document.getElementById('save-item-btn').onclick=()=>{
   const photos = modalPhotos.slice();
   const files = modalFiles.slice();
   const audio = modalAudio.slice();
+  const tables = modalTables.filter(t=>t.rows.some(r=>r.some(c=>c.trim()!=='')));
 
-  if(!title && !text && !links.length && !photos.length && !files.length && !audio.length){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото, файл или аудио.'); return; }
+  if(!title && !text && !links.length && !photos.length && !files.length && !audio.length && !tables.length){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото, файл, аудио или таблицу.'); return; }
 
   const reminderVal=document.getElementById('f-reminder').value;
   const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
@@ -2315,7 +2377,7 @@ document.getElementById('save-item-btn').onclick=()=>{
   const base = editingItemId ? ITEMS.find(it=>it.id===editingItemId) : null;
   const newItem = {
     id: editingItemId || uid(),
-    kind: currentType, title, text, links, photos, files, audio,
+    kind: currentType, title, text, links, photos, files, audio, tables,
     taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
     tagIds: Array.from(modalTagIds),
     checklist: cleanChecklist,
