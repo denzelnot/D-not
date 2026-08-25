@@ -1251,7 +1251,11 @@ function tagSubtreeIds(rootId){
   return ids;
 }
 function getGtdRoots(){
-  return { taskRoot: findRootTagByLabelHint(['задач']), projectRoot: findRootTagByLabelHint(['проект']) };
+  return {
+    taskRoot: findRootTagByLabelHint(['задач']),
+    projectRoot: findRootTagByLabelHint(['проект']),
+    areaRoot: findRootTagByLabelHint(['ответствен', 'зона'])
+  };
 }
 function isOrphanedTask(it){
   if(it.trashed) return false;
@@ -1262,18 +1266,30 @@ function isOrphanedTask(it){
   return it.tagIds.some(t=>taskIds.has(t)) && !it.tagIds.some(t=>projectIds.has(t));
 }
 function orphanedCount(){ return ITEMS.filter(isOrphanedTask).length; }
+function isOrphanedProject(it){
+  if(it.trashed) return false;
+  const {projectRoot, areaRoot} = getGtdRoots();
+  if(!projectRoot || !areaRoot) return false;
+  const projectIds = new Set(tagSubtreeIds(projectRoot.id));
+  const areaIds = new Set(tagSubtreeIds(areaRoot.id));
+  return it.tagIds.some(t=>projectIds.has(t)) && !it.tagIds.some(t=>areaIds.has(t));
+}
+function orphanedProjectCount(){ return ITEMS.filter(isOrphanedProject).length; }
 
 function renderPinned(){
   const wrap=document.getElementById('pinned-block');
   wrap.innerHTML='';
   wrap.appendChild(makeNodeRow({id:'inbox',label:'Входящие',code:'',icon:'▤',count:inboxCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'processed',label:'Обработанные',code:'',icon:'▦',count:processedCount(),hasChildren:false,isPinned:true}));
-  wrap.appendChild(makeNodeRow({id:'today',label:'Сегодня',code:'',icon:'☀',count:todayCount(),hasChildren:false,isPinned:true}));
-  const {taskRoot, projectRoot} = getGtdRoots();
+  const {taskRoot, projectRoot, areaRoot} = getGtdRoots();
   if(taskRoot && projectRoot){
     wrap.appendChild(makeNodeRow({id:'orphaned',label:'Без проекта',code:'',icon:'⚠',count:orphanedCount(),hasChildren:false,isPinned:true}));
   }
+  if(projectRoot && areaRoot){
+    wrap.appendChild(makeNodeRow({id:'orphaned-project',label:'Без зоны ответственности',code:'',icon:'⚠',count:orphanedProjectCount(),hasChildren:false,isPinned:true}));
+  }
   wrap.appendChild(makeNodeRow({id:'calendar',label:'Календарь',code:'',icon:'▥',count:null,hasChildren:false,isPinned:true}));
+  wrap.appendChild(makeNodeRow({id:'today',label:'Сегодня',code:'',icon:'☀',count:todayCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'trash',label:'Корзина',code:'',icon:'🗑',count:trashCount(),hasChildren:false,isPinned:true}));
 }
 function makeNodeRow(opts){
@@ -1325,6 +1341,7 @@ function currentNodeInfo(){
   if(selectedNodeId==='processed') return {label:'Обработанные',code:'',desc:'Все записи с хотя бы одной меткой, из всех разделов сразу'};
   if(selectedNodeId==='today') return {label:'Сегодня',code:'',desc:'Напоминания на сегодня и просроченные'};
   if(selectedNodeId==='orphaned') return {label:'Без проекта',code:'',desc:'Задачи без привязки к разделу «Проекты»'};
+  if(selectedNodeId==='orphaned-project') return {label:'Без зоны ответственности',code:'',desc:'Записи из «Проекты» без привязки к разделу «Зона ответственности»'};
   if(selectedNodeId==='calendar') return {label:'Календарь',code:'',desc:'Ближайшие 14 дней из Google Calendar'};
   if(selectedNodeId==='trash') return {label:'Корзина',code:'',desc:'Перетащите запись сюда, чтобы убрать — можно восстановить в любой момент'};
   const tag=tagById(selectedNodeId);
@@ -1350,6 +1367,7 @@ function itemsForSelection(){
   else if(selectedNodeId==='processed') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length>0);
   else if(selectedNodeId==='today') list=ITEMS.filter(isDueTodayOrOverdue);
   else if(selectedNodeId==='orphaned') list=ITEMS.filter(isOrphanedTask);
+  else if(selectedNodeId==='orphaned-project') list=ITEMS.filter(isOrphanedProject);
   else if(selectedNodeId==='trash') list=ITEMS.filter(it=>it.trashed);
   else list=ITEMS.filter(it=>!it.trashed && it.tagIds.includes(selectedNodeId));
   return applyKind(list).slice().sort((a,b)=> (selectedNodeId==='trash' ? (b.trashedAt||0)-(a.trashedAt||0) : (selectedNodeId==='today' ? a.reminderAt-b.reminderAt : b.createdAt-a.createdAt)));
@@ -1390,6 +1408,7 @@ function renderList(){
     else if(selectedNodeId==='processed') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Пока ничего не обработано — ни одна запись ещё не получила метку.</div>`;
     else if(selectedNodeId==='today') es.innerHTML=`<div class="glyph">☀</div><div class="msg">На сегодня и просроченного ничего нет.</div>`;
     else if(selectedNodeId==='orphaned') es.innerHTML=`<div class="glyph">⚠</div><div class="msg">Все задачи привязаны к какому-нибудь проекту. Порядок.</div>`;
+    else if(selectedNodeId==='orphaned-project') es.innerHTML=`<div class="glyph">⚠</div><div class="msg">Все записи из «Проекты» привязаны к какой-нибудь зоне ответственности. Порядок.</div>`;
     else es.innerHTML=`<div class="glyph">∅</div><div class="msg">В этом разделе пока нет записей.<br>Прикрепите к записи из «Входящие» эту метку — и она появится здесь. На ПК можно просто перетащить карточку сюда.</div>`;
     wrap.appendChild(es);
     return;
