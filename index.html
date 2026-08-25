@@ -74,7 +74,7 @@
   .node-row:hover .node-actions{ display:flex; }
   .icon-btn{ width:20px; height:20px; display:flex; align-items:center; justify-content:center; color:var(--dim); border-radius:4px; cursor:pointer; background:none; border:none; }
   .icon-btn:hover{ color:var(--text); background:var(--border); }
-  .children{ margin-left:16px; border-left:1px solid var(--border); padding-left:2px; }
+  .children{ margin-left:9px; border-left:1.5px solid rgba(255,255,255,.16); padding-left:9px; }
 
   .pinned-block{ padding:2px 8px 8px 8px; }
   .section-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.08em; color:var(--dim); text-transform:uppercase; padding:10px 10px 4px 10px; }
@@ -125,6 +125,7 @@
   .card-snippet{ font-size:12.5px; color:var(--muted); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .card-tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; align-items:center; }
   .tag-chip{ font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--muted); background:var(--panel-2); border:1px solid var(--border); padding:1px 6px; border-radius:9px; white-space:nowrap; }
+  .tag-name-chip{ color:#6fe0a0; background:#16261d; border-color:#2d5a40; font-weight:600; }
   .checklist-chip-btn{ cursor:pointer; }
   .checklist-chip-btn:hover{ border-color:var(--teal-dim); color:var(--teal); }
   .inline-checklist{ margin-top:9px; padding-top:9px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
@@ -138,6 +139,12 @@
   }
   .kind-filter-btn:hover{ border-color:var(--dim); }
   .kind-filter-btn.active{ background:var(--teal-dim); border-color:var(--teal); color:var(--text); }
+  #select-toolbar{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    background:var(--teal-dim); border-bottom:1px solid var(--teal); padding:9px 24px; font-size:13px;
+  }
+  .card-select-check{ flex:none; width:22px; height:22px; margin-top:2px; accent-color:var(--teal); }
+  .card.select-mode{ cursor:pointer; }
   .card-thumb{ width:26px;height:26px;border-radius:6px;object-fit:cover; flex:none; margin-top:1px; }
   .share-btn{ margin-left:auto; border-radius:5px; border:1px solid var(--border); background:var(--panel-2); color:var(--dim); display:flex; align-items:center; gap:4px; cursor:pointer; font-size:10.5px; flex:none; padding:3px 7px; font-family:'IBM Plex Mono',monospace; }
   .share-btn:hover{ color:var(--teal); border-color:var(--teal-dim); }
@@ -319,8 +326,17 @@
           <span id="backup-status-top-dot"></span>
           <span id="backup-status-top-text" class="backup-status-top-label"></span>
         </button>
+        <button class="btn btn-ghost btn-small" id="select-mode-btn" title="Выбрать несколько записей">☑ Выбрать</button>
         <button class="btn btn-ghost btn-small" id="mobile-menu-btn" style="display:none;">☰</button>
         <button class="btn btn-accent" id="new-item-btn">＋ Добавить</button>
+      </div>
+    </div>
+    <div class="hidden" id="select-toolbar">
+      <span id="select-count-label">0 выбрано</span>
+      <div style="display:flex; gap:8px; flex:none;">
+        <button class="btn btn-small" id="select-tag-btn">🏷 Добавить метку</button>
+        <button class="btn btn-small btn-danger" id="select-trash-btn">🗑 В корзину</button>
+        <button class="btn btn-small btn-ghost" id="select-cancel-btn">Отмена</button>
       </div>
     </div>
     <div id="kind-filter-bar">
@@ -338,6 +354,7 @@
     <div class="modal-header">
       <h3 id="item-modal-title">Новая запись</h3>
       <div style="display:flex; gap:6px; align-items:center;">
+        <button class="btn btn-small hidden" id="print-item-btn" title="Печать / сохранить как PDF">🖨</button>
         <button class="btn btn-small hidden" id="share-item-btn">⇪ Поделиться</button>
         <button class="close-x" id="item-modal-close">✕</button>
       </div>
@@ -409,6 +426,13 @@
       <div class="field">
         <label>Напоминание <span style="text-transform:none; color:var(--dim);">(сработает, пока приложение открыто в браузере)</span></label>
         <input type="datetime-local" id="f-reminder">
+        <select id="f-recurrence" class="hidden" style="margin-top:8px;">
+          <option value="none">Не повторять</option>
+          <option value="daily">Повторять каждый день</option>
+          <option value="weekly">Повторять каждую неделю</option>
+          <option value="monthly">Повторять каждый месяц</option>
+          <option value="yearly">Повторять каждый год</option>
+        </select>
         <label class="checkbox-label hidden" id="gcal-sync-wrap"><input type="checkbox" id="f-gcal-sync"> Добавить событие в Google Календарь</label>
       </div>
 
@@ -442,6 +466,16 @@
       <div class="hint" id="tag-modal-hint"></div>
     </div>
     <div class="modal-footer"><span></span><div style="display:flex; gap:8px;"><button class="btn btn-ghost" id="tag-modal-cancel">Отмена</button><button class="btn btn-accent" id="tag-modal-save">Сохранить</button></div></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="bulk-tag-overlay">
+  <div class="modal">
+    <div class="modal-header"><h3>Выберите метку для добавления</h3><button class="close-x" id="bulk-tag-close">✕</button></div>
+    <div class="modal-body">
+      <div class="tagpick-tree" id="bulk-tagpick-tree"></div>
+    </div>
+    <div class="modal-footer"><span></span><button class="btn btn-ghost" id="bulk-tag-cancel">Отмена</button></div>
   </div>
 </div>
 
@@ -572,12 +606,24 @@ function initGcalClientIfNeeded(){
         checkDriveFreshness();
         flashSaved('Google подключён');
       }
+    },
+    error_callback: (err)=>{
+      console.error('Google auth error', err);
+      // Частая причина "не с первого раза": первая тихая попытка (prompt:'') не удалась,
+      // потому что активной сессии/согласия ещё не было — сразу пробуем ещё раз с полным экраном входа,
+      // чтобы пользователю не приходилось жать кнопку по нескольку раз вручную.
+      if(err && (err.type==='popup_failed_to_open' || err.type==='popup_closed' || err.type==='unknown') && !gcalConnectRetried){
+        gcalConnectRetried = true;
+        setTimeout(()=>{ try{ gcalTokenClient.requestAccessToken({prompt:'consent'}); }catch(e){} }, 400);
+      }
     }
   });
 }
+let gcalConnectRetried=false;
 function gcalConnect(){
   initGcalClientIfNeeded();
   if(!gcalTokenClient){ alert('Google ещё не загрузился, попробуйте через пару секунд, или проверьте Client ID.'); return; }
+  gcalConnectRetried=false;
   gcalTokenClient.requestAccessToken({prompt: gcalAccessToken ? '' : 'consent'});
 }
 async function gcalUpsertEvent(item){
@@ -953,6 +999,8 @@ let expanded = new Set(['t-20000']);
 let selectedNodeId='inbox';
 let searchQuery='';
 let kindFilter='all';
+let selectMode=false;
+let selectedIds=new Set();
 
 const TYPE_META = {
   note:{icon:'✎',label:'Заметка',color:'#8ea9ff'},
@@ -997,6 +1045,7 @@ function migrateItem(it){
     links, photos, files, audio,
     taskDone: !!base.taskDone, tagIds: base.tagIds||[], checklist: base.checklist||[],
     reminderAt: base.reminderAt||null, reminderNotified: !!base.reminderNotified,
+    recurrence: base.recurrence||'none',
     gcalSync: !!base.gcalSync, gcalEventId: base.gcalEventId||null,
     trashed: !!base.trashed, trashedAt: base.trashedAt||null,
     createdAt: base.createdAt||Date.now(), updatedAt: base.updatedAt||Date.now()
@@ -1064,23 +1113,65 @@ function snippetOf(item){ return (item.text||'').replace(/\s+/g,' ').trim(); }
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toLocalInputValue(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 
+function dataUrlToFile(dataUrl, filename){
+  return fetch(dataUrl).then(res=>res.blob()).then(blob=>new File([blob], filename, {type:blob.type||'image/jpeg'}));
+}
 async function shareItem(item){
   const tagsTxt = item.tagIds.map(id=>tagById(id)?.label).filter(Boolean).join(', ');
   let text='';
   if(item.title) text += item.title+'\n';
   if(item.text) text += item.text+'\n';
   if(item.links && item.links.length) text += item.links.join('\n')+'\n';
-  if(item.photos && item.photos.length) text += '[фото прикреплено в D-Not: '+item.photos.length+' шт.]\n';
   if(item.files && item.files.length) text += item.files.map(f=>'[файл: '+f.name+']').join('\n')+'\n';
   if(item.audio && item.audio.length) text += '[голосовых заметок: '+item.audio.length+']\n';
   if(item.checklist && item.checklist.length){ text += item.checklist.map(c=>(c.done?'[x] ':'[ ] ')+c.text).join('\n')+'\n'; }
   if(tagsTxt) text += '\nМетки: '+tagsTxt;
   text = text.trim();
+
+  if(item.photos && item.photos.length && navigator.canShare){
+    try{
+      const files = await Promise.all(item.photos.map((src,i)=>dataUrlToFile(src, 'photo-'+(i+1)+'.jpg')));
+      if(navigator.canShare({files})){
+        await navigator.share({title:item.title||'Запись из D-Not', text, files});
+        return;
+      }
+    }catch(e){ /* не вышло — попробуем без файлов ниже */ }
+  }
+  if(item.photos && item.photos.length) text = ('[фото прикреплено в D-Not: '+item.photos.length+' шт.]\n'+text).trim();
+
   if(navigator.share){ try{ await navigator.share({title:item.title||'Запись из D-Not', text}); }catch(e){} }
   else if(navigator.clipboard){ try{ await navigator.clipboard.writeText(text); flashSaved('скопировано'); }catch(e){ alert('Не удалось скопировать текст.'); } }
   else alert(text);
 }
 
+function nextRecurrenceDate(ts, recurrence){
+  const d = new Date(ts);
+  if(recurrence==='daily') d.setDate(d.getDate()+1);
+  else if(recurrence==='weekly') d.setDate(d.getDate()+7);
+  else if(recurrence==='monthly') d.setMonth(d.getMonth()+1);
+  else if(recurrence==='yearly') d.setFullYear(d.getFullYear()+1);
+  else return null;
+  return d.getTime();
+}
+function maybeSpawnRecurrence(it){
+  if(!it.recurrence || it.recurrence==='none' || !it.reminderAt) return;
+  const nextAt = nextRecurrenceDate(it.reminderAt, it.recurrence);
+  if(!nextAt) return;
+  const dup = {
+    id: uid(), kind: it.kind, title: it.title, text: it.text,
+    links:(it.links||[]).slice(), photos:(it.photos||[]).slice(), files:(it.files||[]).map(f=>({...f})), audio:[],
+    taskDone:false, tagIds:(it.tagIds||[]).slice(),
+    checklist: (it.checklist||[]).map(c=>({id:uid(), text:c.text, done:false})),
+    reminderAt: nextAt, reminderNotified:false, recurrence: it.recurrence,
+    gcalSync: it.gcalSync, gcalEventId: null,
+    trashed:false, trashedAt:null,
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  ITEMS.push(dup);
+  saveItems();
+  if(dup.gcalSync) syncItemToCalendar(dup, true);
+  flashSaved('создано следующее повторение — '+formatDate(nextAt));
+}
 function toggleTaskDone(item){
   const fresh = ITEMS.find(it=>it.id===item.id);
   if(!fresh) return;
@@ -1093,11 +1184,13 @@ function toggleTaskDone(item){
   ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
   saveItems();
   render();
+  if(newState) maybeSpawnRecurrence(fresh);
 }
 let expandedChecklistId=null;
 function toggleInlineChecklistItem(itemId, idx, checked){
   const fresh = ITEMS.find(it=>it.id===itemId);
   if(!fresh || !fresh.checklist || !fresh.checklist[idx]) return;
+  const wasDone = fresh.taskDone;
   fresh.checklist = fresh.checklist.map((c,i)=> i===idx ? {...c, done:checked} : c);
   const meaningful = fresh.checklist.filter(c=>c.text.trim()!=='');
   if(fresh.kind==='task' && meaningful.length>0){
@@ -1106,6 +1199,7 @@ function toggleInlineChecklistItem(itemId, idx, checked){
   ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
   saveItems();
   render();
+  if(!wasDone && fresh.taskDone) maybeSpawnRecurrence(fresh);
 }
 
 /* =========================================================
@@ -1135,11 +1229,50 @@ function notifyReminder(item){
    ========================================================= */
 function processedCount(){ return ITEMS.filter(it=>!it.trashed && it.tagIds.length>0).length; }
 function trashCount(){ return ITEMS.filter(it=>it.trashed).length; }
+function isDueTodayOrOverdue(it){
+  if(!it.reminderAt || it.trashed) return false;
+  if(it.kind==='task' && it.taskDone) return false;
+  const endOfToday = new Date(); endOfToday.setHours(23,59,59,999);
+  return it.reminderAt <= endOfToday.getTime();
+}
+function todayCount(){ return ITEMS.filter(isDueTodayOrOverdue).length; }
+
+function findRootTagByLabelHint(hints){
+  const roots = TAGS.filter(t=>!t.parent);
+  for(const hint of hints){
+    const match = roots.find(t=>t.label.toLowerCase().includes(hint));
+    if(match) return match;
+  }
+  return null;
+}
+function tagSubtreeIds(rootId){
+  const ids=[rootId];
+  (function walk(pid){ childrenOf(pid).forEach(c=>{ ids.push(c.id); walk(c.id); }); })(rootId);
+  return ids;
+}
+function getGtdRoots(){
+  return { taskRoot: findRootTagByLabelHint(['задач']), projectRoot: findRootTagByLabelHint(['проект']) };
+}
+function isOrphanedTask(it){
+  if(it.trashed) return false;
+  const {taskRoot, projectRoot} = getGtdRoots();
+  if(!taskRoot || !projectRoot) return false;
+  const taskIds = new Set(tagSubtreeIds(taskRoot.id));
+  const projectIds = new Set(tagSubtreeIds(projectRoot.id));
+  return it.tagIds.some(t=>taskIds.has(t)) && !it.tagIds.some(t=>projectIds.has(t));
+}
+function orphanedCount(){ return ITEMS.filter(isOrphanedTask).length; }
+
 function renderPinned(){
   const wrap=document.getElementById('pinned-block');
   wrap.innerHTML='';
   wrap.appendChild(makeNodeRow({id:'inbox',label:'Входящие',code:'',icon:'▤',count:inboxCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'processed',label:'Обработанные',code:'',icon:'▦',count:processedCount(),hasChildren:false,isPinned:true}));
+  wrap.appendChild(makeNodeRow({id:'today',label:'Сегодня',code:'',icon:'☀',count:todayCount(),hasChildren:false,isPinned:true}));
+  const {taskRoot, projectRoot} = getGtdRoots();
+  if(taskRoot && projectRoot){
+    wrap.appendChild(makeNodeRow({id:'orphaned',label:'Без проекта',code:'',icon:'⚠',count:orphanedCount(),hasChildren:false,isPinned:true}));
+  }
   wrap.appendChild(makeNodeRow({id:'calendar',label:'Календарь',code:'',icon:'▥',count:null,hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'trash',label:'Корзина',code:'',icon:'🗑',count:trashCount(),hasChildren:false,isPinned:true}));
 }
@@ -1190,6 +1323,8 @@ function renderTree(){ const scroll=document.getElementById('tree-scroll'); scro
 function currentNodeInfo(){
   if(selectedNodeId==='inbox') return {label:'Входящие',code:'',desc:'Необработанные записи — без меток'};
   if(selectedNodeId==='processed') return {label:'Обработанные',code:'',desc:'Все записи с хотя бы одной меткой, из всех разделов сразу'};
+  if(selectedNodeId==='today') return {label:'Сегодня',code:'',desc:'Напоминания на сегодня и просроченные'};
+  if(selectedNodeId==='orphaned') return {label:'Без проекта',code:'',desc:'Задачи без привязки к разделу «Проекты»'};
   if(selectedNodeId==='calendar') return {label:'Календарь',code:'',desc:'Ближайшие 14 дней из Google Calendar'};
   if(selectedNodeId==='trash') return {label:'Корзина',code:'',desc:'Перетащите запись сюда, чтобы убрать — можно восстановить в любой момент'};
   const tag=tagById(selectedNodeId);
@@ -1213,9 +1348,11 @@ function itemsForSelection(){
   let list;
   if(selectedNodeId==='inbox') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length===0);
   else if(selectedNodeId==='processed') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length>0);
+  else if(selectedNodeId==='today') list=ITEMS.filter(isDueTodayOrOverdue);
+  else if(selectedNodeId==='orphaned') list=ITEMS.filter(isOrphanedTask);
   else if(selectedNodeId==='trash') list=ITEMS.filter(it=>it.trashed);
   else list=ITEMS.filter(it=>!it.trashed && it.tagIds.includes(selectedNodeId));
-  return applyKind(list).slice().sort((a,b)=> (selectedNodeId==='trash' ? (b.trashedAt||0)-(a.trashedAt||0) : b.createdAt-a.createdAt));
+  return applyKind(list).slice().sort((a,b)=> (selectedNodeId==='trash' ? (b.trashedAt||0)-(a.trashedAt||0) : (selectedNodeId==='today' ? a.reminderAt-b.reminderAt : b.createdAt-a.createdAt)));
 }
 function renderHeader(){
   const codeEl=document.getElementById('main-code');
@@ -1251,6 +1388,8 @@ function renderList(){
     if(searching) es.innerHTML=`<div class="glyph">∅</div><div class="msg">Ничего не найдено по запросу «${escapeHtml(searchQuery.trim())}».</div>`;
     else if(selectedNodeId==='inbox') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Входящие пусты.<br>Нажмите «＋ Добавить», чтобы закинуть сюда заметку или задачу — а разобрать по разделам можно позже (на ПК — можно просто перетащить карточку на нужный раздел слева).</div>`;
     else if(selectedNodeId==='processed') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Пока ничего не обработано — ни одна запись ещё не получила метку.</div>`;
+    else if(selectedNodeId==='today') es.innerHTML=`<div class="glyph">☀</div><div class="msg">На сегодня и просроченного ничего нет.</div>`;
+    else if(selectedNodeId==='orphaned') es.innerHTML=`<div class="glyph">⚠</div><div class="msg">Все задачи привязаны к какому-нибудь проекту. Порядок.</div>`;
     else es.innerHTML=`<div class="glyph">∅</div><div class="msg">В этом разделе пока нет записей.<br>Прикрепите к записи из «Входящие» эту метку — и она появится здесь. На ПК можно просто перетащить карточку сюда.</div>`;
     wrap.appendChild(es);
     return;
@@ -1264,7 +1403,7 @@ function renderList(){
     else if(item.photos && item.photos.length) thumb=`<img class="card-thumb" src="${item.photos[0]}">`;
     else thumb=`<div class="card-type-icon" style="background:${meta.color}22; color:${meta.color};">${meta.icon}</div>`;
 
-    let tagsHtml = item.tagIds.map(tid=>{ const t=tagById(tid); return t?`<span class="tag-chip">${escapeHtml(t.label)}</span>`:''; }).join('');
+    let tagsHtml = item.tagIds.map(tid=>{ const t=tagById(tid); return t?`<span class="tag-chip tag-name-chip">${escapeHtml(t.label)}</span>`:''; }).join('');
     if(searching && item.tagIds.length===0) tagsHtml += `<span class="tag-chip">Входящие</span>`;
     (item.links||[]).forEach(l=>{ tagsHtml += `<a href="${escapeHtml(l)}" target="_blank" rel="noopener" class="tag-chip card-link-chip">🔗 ${escapeHtml(domainOf(l))}</a>`; });
     if(item.photos && item.photos.length) tagsHtml += `<span class="tag-chip">🖼 ${item.photos.length>1?item.photos.length+' фото':'фото'}</span>`;
@@ -1288,6 +1427,7 @@ function renderList(){
       `).join('') + `</div>`;
     }
     card.innerHTML = `
+      ${selectMode ? `<input type="checkbox" class="card-select-check" ${selectedIds.has(item.id)?'checked':''}>` : ''}
       ${thumb}
       <div class="card-body">
         <div class="card-top">
@@ -1299,6 +1439,16 @@ function renderList(){
         ${expandedChecklistHtml}
       </div>
     `;
+    if(selectMode){
+      card.classList.add('select-mode');
+      if(selectedIds.has(item.id)) card.style.borderColor='var(--teal)';
+      const cb = card.querySelector('.card-select-check');
+      cb.onclick=(e)=>e.stopPropagation();
+      cb.onchange=()=>{ toggleCardSelection(item.id); };
+      card.onclick=()=>{ toggleCardSelection(item.id); };
+      wrap.appendChild(card);
+      return;
+    }
     if(item.kind==='task'){
       card.querySelector('.task-check-btn').onclick=(e)=>{ e.stopPropagation(); card.dataset.justDragged='1'; toggleTaskDone(item); };
     }
@@ -1485,10 +1635,25 @@ function renderAgendaList(events){
   });
 }
 
+function toggleCardSelection(id){
+  if(selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+  renderList();
+  updateSelectToolbar();
+}
+function updateSelectToolbar(){
+  document.getElementById('select-count-label').textContent = selectedIds.size+' выбрано';
+}
+function exitSelectMode(){
+  selectMode=false;
+  selectedIds=new Set();
+  document.getElementById('select-toolbar').classList.add('hidden');
+  document.getElementById('select-mode-btn').textContent='☑ Выбрать';
+  render();
+}
 function render(){
   renderPinned(); renderTree(); renderHeader(); renderList();
   const hideBar = (selectedNodeId==='calendar' || selectedNodeId==='trash') && !searchQuery.trim();
-  document.getElementById('new-item-btn').classList.toggle('hidden', selectedNodeId==='calendar' && !searchQuery.trim());
+  document.getElementById('new-item-btn').classList.toggle('hidden', (selectedNodeId==='calendar' && !searchQuery.trim()) || selectMode);
   document.getElementById('kind-filter-bar').classList.toggle('hidden', hideBar);
 }
 
@@ -1711,6 +1876,7 @@ function openItemModal(item){
   document.getElementById('restore-item-btn').classList.toggle('hidden', !(item && item.trashed));
   document.getElementById('duplicate-item-btn').classList.toggle('hidden', !(item && !item.trashed));
   document.getElementById('share-item-btn').classList.toggle('hidden', !item);
+  document.getElementById('print-item-btn').classList.toggle('hidden', !item);
 
   document.getElementById('f-title').value = item ? item.title : '';
   document.getElementById('f-content').value = item ? (item.text||'') : '';
@@ -1724,6 +1890,7 @@ function openItemModal(item){
   document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
   document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
   document.getElementById('f-gcal-sync').checked = item ? !!item.gcalSync : false;
+  document.getElementById('f-recurrence').value = item && item.recurrence ? item.recurrence : 'none';
   updateGcalCheckboxVisibility();
 
   modalTagIds = new Set(item ? item.tagIds : []);
@@ -2018,7 +2185,8 @@ document.getElementById('f-reminder').addEventListener('change', ()=>{
 function updateGcalCheckboxVisibility(){
   const hasReminder = !!document.getElementById('f-reminder').value;
   document.getElementById('gcal-sync-wrap').classList.toggle('hidden', !hasReminder);
-  if(!hasReminder) document.getElementById('f-gcal-sync').checked = false;
+  document.getElementById('f-recurrence').classList.toggle('hidden', !hasReminder);
+  if(!hasReminder){ document.getElementById('f-gcal-sync').checked = false; document.getElementById('f-recurrence').value='none'; }
 }
 document.getElementById('f-reminder').addEventListener('input', updateGcalCheckboxVisibility);
 
@@ -2027,6 +2195,34 @@ document.getElementById('cancel-item-btn').onclick=closeItemModal;
 document.getElementById('item-modal-overlay').onclick=(e)=>{ if(e.target.id==='item-modal-overlay') closeItemModal(); };
 document.getElementById('new-item-btn').onclick=()=>openItemModal(null);
 document.getElementById('share-item-btn').onclick=()=>{ const it=ITEMS.find(i=>i.id===editingItemId); if(it) shareItem(it); };
+document.getElementById('print-item-btn').onclick=()=>{ const it=ITEMS.find(i=>i.id===editingItemId); if(it) printItem(it); };
+function printItem(item){
+  const win = window.open('', '_blank');
+  if(!win){ alert('Не удалось открыть окно печати — проверьте, не блокирует ли браузер всплывающие окна для этого сайта.'); return; }
+  const tagsTxt = item.tagIds.map(id=>tagById(id)?.label).filter(Boolean).join(', ');
+  const checklistHtml = (item.checklist||[]).map(c=>`<div style="margin:5px 0; font-size:14px;">${c.done?'☑':'☐'} <span style="${c.done?'text-decoration:line-through;color:#888;':''}">${escapeHtml(c.text)}</span></div>`).join('');
+  const linksHtml = (item.links||[]).map(l=>`<div style="font-size:13px; margin:3px 0;">🔗 ${escapeHtml(l)}</div>`).join('');
+  const photosHtml = (item.photos||[]).map(src=>`<img src="${src}" style="max-width:220px; max-height:220px; margin:6px 6px 0 0; border-radius:6px; border:1px solid #ddd;">`).join('');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(item.title||'Запись из D-Not')}</title>
+    <style>
+      body{ font-family:-apple-system,Segoe UI,Roboto,sans-serif; padding:32px; color:#111; max-width:700px; margin:0 auto; }
+      h1{ font-size:21px; margin:0 0 4px 0; }
+      .meta{ color:#777; font-size:12px; margin-bottom:20px; }
+      .text{ white-space:pre-wrap; font-size:14px; line-height:1.5; margin-bottom:18px; }
+      h3{ font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#777; margin:20px 0 8px 0; }
+    </style>
+    </head><body>
+      <h1>${escapeHtml(item.title||'(без названия)')}</h1>
+      <div class="meta">${formatDate(item.createdAt)}${tagsTxt ? ' · '+escapeHtml(tagsTxt) : ''}</div>
+      ${item.text ? `<div class="text">${escapeHtml(item.text)}</div>` : ''}
+      ${linksHtml ? '<h3>Ссылки</h3>'+linksHtml : ''}
+      ${photosHtml ? '<h3>Фото</h3><div>'+photosHtml+'</div>' : ''}
+      ${checklistHtml ? '<h3>Чек-лист</h3>'+checklistHtml : ''}
+    </body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>win.print(), 350);
+}
 
 document.getElementById('delete-item-btn').onclick=()=>{
   if(!editingItemId) return;
@@ -2065,6 +2261,7 @@ document.getElementById('duplicate-item-btn').onclick=()=>{
     checklist: (it.checklist||[]).map(c=>({id:uid(), text:c.text, done:false})),
     reminderAt: null,
     reminderNotified: false,
+    recurrence: it.recurrence||'none',
     gcalSync: false,
     gcalEventId: null,
     trashed: false,
@@ -2092,6 +2289,7 @@ document.getElementById('save-item-btn').onclick=()=>{
 
   const reminderVal=document.getElementById('f-reminder').value;
   const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
+  const recurrence = reminderAt ? document.getElementById('f-recurrence').value : 'none';
   const cleanChecklist = currentChecklist.filter(c=>c.text.trim()!=='').map(c=>({id:c.id,text:c.text.trim(),done:!!c.done}));
   const gcalSync = !document.getElementById('gcal-sync-wrap').classList.contains('hidden') && document.getElementById('f-gcal-sync').checked;
 
@@ -2104,6 +2302,7 @@ document.getElementById('save-item-btn').onclick=()=>{
     checklist: cleanChecklist,
     reminderAt,
     reminderNotified: (base && base.reminderAt===reminderAt) ? !!base.reminderNotified : false,
+    recurrence,
     gcalSync,
     gcalEventId: base ? base.gcalEventId : null,
     trashed: base ? !!base.trashed : false,
@@ -2117,6 +2316,7 @@ document.getElementById('save-item-btn').onclick=()=>{
   closeItemModal();
   render();
   if(reminderAt) syncItemToCalendar(newItem, gcalSync);
+  if(!base || !base.taskDone){ if(newItem.taskDone) maybeSpawnRecurrence(newItem); }
 };
 
 /* =========================================================
@@ -2335,6 +2535,52 @@ document.querySelectorAll('.kind-filter-btn').forEach(btn=>{
     renderList();
   };
 });
+
+document.getElementById('select-mode-btn').onclick=()=>{
+  selectMode = !selectMode;
+  selectedIds = new Set();
+  document.getElementById('select-mode-btn').textContent = selectMode ? '✕ Отменить выбор' : '☑ Выбрать';
+  document.getElementById('select-toolbar').classList.toggle('hidden', !selectMode);
+  updateSelectToolbar();
+  render();
+};
+document.getElementById('select-cancel-btn').onclick=exitSelectMode;
+document.getElementById('select-trash-btn').onclick=()=>{
+  if(!selectedIds.size) return;
+  if(!confirm('Переместить '+selectedIds.size+' запис(ей) в корзину?')) return;
+  ITEMS = ITEMS.map(it=> selectedIds.has(it.id) ? {...it, trashed:true, trashedAt:Date.now()} : it);
+  saveItems();
+  flashSaved('в корзине: '+selectedIds.size);
+  exitSelectMode();
+};
+document.getElementById('select-tag-btn').onclick=()=>{ if(selectedIds.size) openBulkTagPicker(); };
+function openBulkTagPicker(){
+  const box=document.getElementById('bulk-tagpick-tree');
+  box.innerHTML='';
+  function walk(parentId, depth){
+    childrenOf(parentId).forEach(t=>{
+      const row=document.createElement('div'); row.className='tagpick-row'; row.style.marginLeft=(depth*14)+'px'; row.style.cursor='pointer';
+      row.innerHTML=`<span class="tagpick-label">${escapeHtml(t.label)}</span>${t.code?`<span class="tagpick-code mono">${escapeHtml(t.code)}</span>`:''}`;
+      row.onclick=()=>applyBulkTag(t.id);
+      box.appendChild(row);
+      walk(t.id, depth+1);
+    });
+  }
+  walk(null,0);
+  document.getElementById('bulk-tag-overlay').classList.remove('hidden');
+}
+function closeBulkTagPicker(){ document.getElementById('bulk-tag-overlay').classList.add('hidden'); }
+function applyBulkTag(tagId){
+  const count=selectedIds.size;
+  ITEMS = ITEMS.map(it=> selectedIds.has(it.id) ? {...it, tagIds: it.tagIds.includes(tagId)?it.tagIds:[...it.tagIds, tagId]} : it);
+  saveItems();
+  closeBulkTagPicker();
+  flashSaved('метка добавлена ('+count+')');
+  exitSelectMode();
+}
+document.getElementById('bulk-tag-close').onclick=closeBulkTagPicker;
+document.getElementById('bulk-tag-cancel').onclick=closeBulkTagPicker;
+document.getElementById('bulk-tag-overlay').onclick=(e)=>{ if(e.target.id==='bulk-tag-overlay') closeBulkTagPicker(); };
 
 (function(){
   const resizer=document.getElementById('resizer'), sidebar=document.getElementById('sidebar');
