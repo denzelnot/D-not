@@ -1804,4 +1804,1132 @@ function applyDragTag(item, targetId){
     if(!tag) return;
     if(fresh.tagIds.includes(targetId)){ flashSaved('уже там'); return; }
     fresh.tagIds=[...fresh.tagIds, targetId];
+    flashSaved('добавлено: '+tag.label);
+  }
+  ITEMS = ITEMS.map(it=>it.id===fresh.id?fresh:it);
+  saveItems();
+  render();
+}
 
+/* =========================================================
+   МОДАЛКА: ЗАПИСЬ (статичная разметка, только показ/скрытие)
+   ========================================================= */
+let editingItemId=null;
+let currentType='note';
+let modalTagIds=new Set();
+let modalLinks=[];
+let modalPhotos=[];
+let modalFiles=[];
+let modalAudio=[];
+let modalTables=[];
+let currentChecklist=[];
+
+function setModalType(type){
+  currentType=type;
+  document.getElementById('taskdone-wrap').classList.toggle('hidden', type!=='task');
+  document.querySelectorAll('#type-picker .type-opt').forEach(o=>o.classList.toggle('active', o.dataset.type===type));
+  document.getElementById('content-note-label').textContent = type==='task' ? 'Текст задачи' : 'Текст';
+  updateTaskDoneFromChecklist();
+}
+function updateTaskDoneFromChecklist(){
+  const meaningful = currentChecklist.filter(c=>c.text.trim()!=='');
+  const taskDoneEl = document.getElementById('f-taskdone');
+  const hint = document.getElementById('taskdone-hint');
+  if(currentType==='task' && meaningful.length>0){
+    taskDoneEl.checked = meaningful.every(c=>c.done);
+    taskDoneEl.disabled = true;
+    hint.textContent = '(определяется по чек-листу ниже)';
+  } else {
+    taskDoneEl.disabled = false;
+    hint.textContent = '';
+  }
+}
+function humanFileSize(bytes){
+  if(bytes<1024) return bytes+' Б';
+  if(bytes<1024*1024) return Math.round(bytes/1024)+' КБ';
+  return (bytes/1024/1024).toFixed(1)+' МБ';
+}
+
+function renderLinksList(){
+  const box=document.getElementById('links-list');
+  box.innerHTML='';
+  modalLinks.forEach((url, idx)=>{
+    const row=document.createElement('div'); row.className='attach-row';
+    row.innerHTML=`<span>🔗</span><input type="url" value="${escapeHtml(url)}" placeholder="https://…"><a class="attach-open" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Открыть">↗</a><button type="button" class="icon-btn" title="Убрать">✕</button>`;
+    const input=row.querySelector('input'), openA=row.querySelector('.attach-open'), rm=row.querySelector('.icon-btn');
+    input.oninput=(e)=>{ modalLinks[idx]=e.target.value; openA.href=e.target.value; };
+    rm.onclick=()=>{ modalLinks.splice(idx,1); renderLinksList(); };
+    box.appendChild(row);
+  });
+}
+function renderPhotosList(){
+  const box=document.getElementById('photos-list');
+  box.innerHTML='';
+  modalPhotos.forEach((p, idx)=>{
+    const wrap=document.createElement('div'); wrap.className='photo-thumb-wrap';
+    wrap.innerHTML=`<img src="${p.src}"><button type="button" class="icon-btn" title="Убрать">✕</button>`;
+    wrap.querySelector('img').onclick=()=>openLightbox(p.src);
+    wrap.querySelector('button').onclick=(e)=>{ e.stopPropagation(); removeTokenFromText('photo', p.id); modalPhotos.splice(idx,1); renderPhotosList(); };
+    box.appendChild(wrap);
+  });
+}
+function renderDocsList(){
+  const box=document.getElementById('docs-list');
+  box.innerHTML='';
+  modalFiles.forEach((f, idx)=>{
+    const row=document.createElement('div'); row.className='attach-row';
+    const previewable = isPreviewableFile(f) ? ' (просмотр)' : '';
+    row.innerHTML=`<span>📎</span><a class="content-link" style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" href="#">${escapeHtml(f.name)}${previewable}</a><span class="mono" style="font-size:10.5px; color:var(--dim);">${humanFileSize(f.size)}</span><button type="button" class="icon-btn" title="Убрать">✕</button>`;
+    row.querySelector('a').onclick=(e)=>{ e.preventDefault(); openFilePreview(f); };
+    row.querySelector('button').onclick=()=>{ removeTokenFromText('file', f.id); modalFiles.splice(idx,1); renderDocsList(); };
+    box.appendChild(row);
+  });
+}
+function formatDuration(sec){
+  sec = sec||0;
+  const mm=String(Math.floor(sec/60)).padStart(2,'0'), ss=String(sec%60).padStart(2,'0');
+  return mm+':'+ss;
+}
+function renderInlineToken(item, type, id){
+  if(type==='photo'){
+    const p=(item.photos||[]).find(x=>x.id===id); if(!p) return '';
+    return `<img src="${p.src}" class="inline-photo" data-photo-id="${escapeHtml(id)}">`;
+  }
+  if(type==='table'){
+    const t=(item.tables||[]).find(x=>x.id===id); if(!t) return '';
+    return `<div class="inline-table"><table>${t.rows.map(r=>'<tr>'+r.map(c=>'<td>'+escapeHtml(c)+'</td>').join('')+'</tr>').join('')}</table></div>`;
+  }
+  if(type==='file'){
+    const f=(item.files||[]).find(x=>x.id===id); if(!f) return '';
+    return `<button type="button" class="inline-file-btn" data-file-id="${escapeHtml(id)}">📎 ${escapeHtml(f.name)} <span class="mono" style="color:var(--dim);">(${humanFileSize(f.size)})</span></button>`;
+  }
+  if(type==='audio'){
+    const a=(item.audio||[]).find(x=>x.id===id); if(!a) return '';
+    return `<div class="inline-audio"><audio controls src="${a.dataUrl}"></audio></div>`;
+  }
+  return '';
+}
+function renderInlineContent(item){
+  const text = item.text || '';
+  const tokenRe = /\[\[(photo|table|file|audio):([a-zA-Z0-9_-]+)\]\]/g;
+  let html='', lastIndex=0, m;
+  const used = {photo:new Set(), table:new Set(), file:new Set(), audio:new Set()};
+  while((m = tokenRe.exec(text))){
+    html += escapeHtml(text.slice(lastIndex, m.index));
+    const type=m[1], id=m[2];
+    used[type].add(id);
+    html += renderInlineToken(item, type, id);
+    lastIndex = m.index + m[0].length;
+  }
+  html += escapeHtml(text.slice(lastIndex));
+
+  let tail='';
+  (item.photos||[]).forEach(p=>{ if(!used.photo.has(p.id)) tail += renderInlineToken(item,'photo',p.id); });
+  (item.tables||[]).forEach(t=>{ if(!used.table.has(t.id)) tail += renderInlineToken(item,'table',t.id); });
+  (item.files||[]).forEach(f=>{ if(!used.file.has(f.id)) tail += renderInlineToken(item,'file',f.id); });
+  (item.audio||[]).forEach(a=>{ if(!used.audio.has(a.id)) tail += renderInlineToken(item,'audio',a.id); });
+
+  return `<div class="rendered-text">${html}</div>` + (tail ? `<div class="rendered-tail" style="margin-top:6px;">${tail}</div>` : '');
+}
+function wireInlineContentClicks(item){
+  document.querySelectorAll('#view-content .inline-photo').forEach(img=>{ img.onclick=()=>openLightbox(img.src); });
+  document.querySelectorAll('#view-content .inline-file-btn').forEach(btn=>{
+    btn.onclick=()=>{ const f=(item.files||[]).find(x=>x.id===btn.dataset.fileId); if(f) openFilePreview(f); };
+  });
+}
+function renderViewChecklist(item){
+  const box=document.getElementById('view-checklist');
+  if(!item.checklist || !item.checklist.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = item.checklist.map((c,i)=>`<label class="inline-cl-row"><input type="checkbox" data-idx="${i}" ${c.done?'checked':''}><span class="${c.done?'done':''}">${escapeHtml(c.text)}</span></label>`).join('');
+  box.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.onchange=()=>{
+      toggleInlineChecklistItem(item.id, parseInt(cb.dataset.idx,10), cb.checked);
+      const fresh = ITEMS.find(x=>x.id===item.id);
+      if(fresh && viewingItemId===item.id) openItemView(fresh);
+    };
+  });
+}
+let viewingItemId=null;
+function openItemView(item){
+  if(item.trashed){ openItemModal(item); return; }
+  viewingItemId = item.id;
+  document.getElementById('view-title').textContent = item.title || (item.kind==='task' ? 'Задача' : 'Заметка');
+  const tagsTxt = item.tagIds.map(id=>tagById(id)?.label).filter(Boolean).join(', ');
+  document.getElementById('view-meta').textContent = formatDate(item.createdAt) + (tagsTxt ? ' · '+tagsTxt : '');
+  document.getElementById('view-content').innerHTML = renderInlineContent(item);
+  wireInlineContentClicks(item);
+  const linksBox = document.getElementById('view-links');
+  linksBox.innerHTML = (item.links||[]).map(l=>`<a class="tag-chip card-link-chip" href="${escapeHtml(l)}" target="_blank" rel="noopener">🔗 ${escapeHtml(domainOf(l))}</a>`).join('');
+  linksBox.classList.toggle('hidden', !(item.links && item.links.length));
+  renderViewChecklist(item);
+  document.getElementById('item-view-overlay').classList.remove('hidden');
+}
+function closeItemView(){ document.getElementById('item-view-overlay').classList.add('hidden'); viewingItemId=null; }
+document.getElementById('view-close-btn').onclick=closeItemView;
+document.getElementById('view-close-btn2').onclick=closeItemView;
+document.getElementById('item-view-overlay').onclick=(e)=>{ if(e.target.id==='item-view-overlay') closeItemView(); };
+document.getElementById('view-edit-btn').onclick=()=>{
+  const it=ITEMS.find(x=>x.id===viewingItemId);
+  closeItemView();
+  if(it) openItemModal(it);
+};
+document.getElementById('view-print-btn').onclick=()=>{ const it=ITEMS.find(x=>x.id===viewingItemId); if(it) printItem(it); };
+document.getElementById('view-share-btn').onclick=()=>{ const it=ITEMS.find(x=>x.id===viewingItemId); if(it) shareItem(it); };
+document.getElementById('view-duplicate-btn').onclick=()=>{
+  const it=ITEMS.find(x=>x.id===viewingItemId);
+  if(!it) return;
+  const dup = duplicateItem(it);
+  closeItemView();
+  render();
+  openItemModal(dup);
+  flashSaved('чистый дубликат создан');
+};
+function renderAudioList(){
+  const box=document.getElementById('audio-list');
+  box.innerHTML='';
+  modalAudio.forEach((a, idx)=>{
+    const row=document.createElement('div'); row.className='attach-row'; row.style.flexDirection='column'; row.style.alignItems='stretch';
+    row.innerHTML=`<div style="display:flex; align-items:center; gap:8px;"><span>🎤</span><span style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.name)}</span><span class="mono" style="font-size:10.5px; color:var(--dim);">${formatDuration(a.duration)}</span><button type="button" class="icon-btn" title="Убрать">✕</button></div><audio controls src="${a.dataUrl}"></audio>`;
+    row.querySelector('button').onclick=()=>{ removeTokenFromText('audio', a.id); modalAudio.splice(idx,1); renderAudioList(); };
+    box.appendChild(row);
+  });
+}
+
+function renderTablesList(){
+  const box=document.getElementById('tables-list');
+  box.innerHTML='';
+  modalTables.forEach((tbl, ti)=>{
+    const block=document.createElement('div'); block.className='table-block';
+    const table=document.createElement('table');
+    tbl.rows.forEach((row, ri)=>{
+      const tr=document.createElement('tr');
+      row.forEach((cell, ci)=>{
+        const td=document.createElement('td');
+        const input=document.createElement('input');
+        input.type='text'; input.value=cell;
+        input.oninput=(e)=>{ tbl.rows[ri][ci]=e.target.value; };
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+      const delTd=document.createElement('td'); delTd.style.border='none';
+      const delBtn=document.createElement('button'); delBtn.type='button'; delBtn.className='table-row-del'; delBtn.title='Удалить строку'; delBtn.textContent='✕';
+      delBtn.onclick=()=>{ if(tbl.rows.length<=1) return; tbl.rows.splice(ri,1); renderTablesList(); };
+      delTd.appendChild(delBtn);
+      tr.appendChild(delTd);
+      table.appendChild(tr);
+    });
+    block.appendChild(table);
+    const toolbar=document.createElement('div'); toolbar.className='table-toolbar';
+    toolbar.innerHTML=`<button type="button" class="btn btn-small btn-ghost">＋ Строка</button><button type="button" class="btn btn-small btn-ghost">＋ Столбец</button><button type="button" class="btn btn-small btn-ghost" style="color:var(--red);">✕ Удалить таблицу</button>`;
+    const [addRowBtn, addColBtn, delTableBtn] = toolbar.children;
+    addRowBtn.onclick=()=>{ tbl.rows.push(tbl.rows[0].map(()=>'')); renderTablesList(); };
+    addColBtn.onclick=()=>{ tbl.rows.forEach(r=>r.push('')); renderTablesList(); };
+    delTableBtn.onclick=()=>{ if(!confirm('Удалить эту таблицу?')) return; removeTokenFromText('table', tbl.id); modalTables.splice(ti,1); renderTablesList(); };
+    block.appendChild(toolbar);
+    box.appendChild(block);
+  });
+}
+
+function renderChecklist(){
+  const box=document.getElementById('checklist-items');
+  box.innerHTML='';
+  currentChecklist.forEach((ci,idx)=>{
+    const row=document.createElement('div'); row.className='checklist-row';
+    row.innerHTML=`<input type="checkbox" ${ci.done?'checked':''}><input type="text" value="${escapeHtml(ci.text)}" placeholder="Пункт…" class="${ci.done?'done':''}"><button type="button" class="icon-btn">✕</button>`;
+    const [chk, txt, rm] = row.children;
+    chk.onchange=(e)=>{ ci.done=e.target.checked; txt.classList.toggle('done', ci.done); updateTaskDoneFromChecklist(); };
+    txt.oninput=(e)=>{ ci.text=e.target.value; };
+    rm.onclick=()=>{ currentChecklist.splice(idx,1); renderChecklist(); updateTaskDoneFromChecklist(); };
+    box.appendChild(row);
+  });
+  updateTaskDoneFromChecklist();
+}
+function addChecklistItem(){
+  currentChecklist.push({id:uid(), text:'', done:false});
+  renderChecklist();
+  const rows=document.querySelectorAll('#checklist-items input[type=text]');
+  if(rows.length) rows[rows.length-1].focus();
+}
+
+function renderTagPicker(){
+  const box=document.getElementById('tagpick-tree');
+  box.innerHTML='';
+  function walk(parentId, depth){
+    childrenOf(parentId).forEach(t=>{
+      const row=document.createElement('div'); row.className='tagpick-row'; row.style.marginLeft=(depth*14)+'px';
+      row.innerHTML=`<input type="checkbox" ${modalTagIds.has(t.id)?'checked':''}><span class="tagpick-label">${escapeHtml(t.label)}</span>${t.code?`<span class="tagpick-code mono">${escapeHtml(t.code)}</span>`:''}`;
+      row.querySelector('input').onchange=(e)=>{ if(e.target.checked) modalTagIds.add(t.id); else modalTagIds.delete(t.id); renderCurrentTags(); };
+      box.appendChild(row);
+      walk(t.id, depth+1);
+    });
+  }
+  walk(null,0);
+}
+function renderCurrentTags(){
+  const box=document.getElementById('detail-tags-current');
+  box.innerHTML = modalTagIds.size ? '' : '<span style="color:var(--dim); font-size:12px;">без меток — останется во «Входящих»</span>';
+  modalTagIds.forEach(tid=>{
+    const t=tagById(tid); if(!t) return;
+    const chip=document.createElement('span'); chip.className='tag-chip'; chip.style.cursor='pointer';
+    chip.innerHTML=`${escapeHtml(t.label)} ✕`;
+    chip.onclick=()=>{ modalTagIds.delete(tid); renderTagPicker(); renderCurrentTags(); };
+    box.appendChild(chip);
+  });
+}
+
+function openItemModal(item){
+  editingItemId = item ? item.id : null;
+  document.getElementById('item-modal-title').textContent = item ? (item.trashed ? 'Запись (в корзине)' : 'Запись') : 'Новая запись';
+  document.getElementById('delete-item-btn').classList.toggle('hidden', !item);
+  document.getElementById('delete-item-btn').textContent = item && item.trashed ? 'Удалить навсегда' : 'Удалить запись';
+  document.getElementById('restore-item-btn').classList.toggle('hidden', !(item && item.trashed));
+  document.getElementById('duplicate-item-btn').classList.toggle('hidden', !(item && !item.trashed));
+  document.getElementById('share-item-btn').classList.toggle('hidden', !item);
+  document.getElementById('print-item-btn').classList.toggle('hidden', !item);
+
+  document.getElementById('f-title').value = item ? item.title : '';
+  document.getElementById('f-content').value = item ? (item.text||'') : '';
+
+  modalLinks = item && item.links ? item.links.slice() : [];
+  modalPhotos = item && item.photos ? item.photos.map(p=>({...p})) : [];
+  modalFiles = item && item.files ? item.files.map(f=>({...f})) : [];
+  modalAudio = item && item.audio ? item.audio.map(a=>({...a})) : [];
+  modalTables = item && item.tables ? item.tables.map(t=>({id:t.id, rows:t.rows.map(r=>r.slice())})) : [];
+  renderLinksList(); renderPhotosList(); renderDocsList(); renderAudioList(); renderTablesList();
+
+  document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
+  document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
+  document.getElementById('f-gcal-sync').checked = item ? !!item.gcalSync : false;
+  document.getElementById('f-recurrence').value = item && item.recurrence ? item.recurrence : 'none';
+  updateGcalCheckboxVisibility();
+
+  modalTagIds = new Set(item ? item.tagIds : []);
+  currentChecklist = item && item.checklist ? item.checklist.map(c=>({...c})) : [];
+
+  setModalType(item ? item.kind : 'note');
+  renderTagPicker(); renderCurrentTags(); renderChecklist();
+
+  document.getElementById('item-modal-overlay').classList.remove('hidden');
+}
+function closeItemModal(){
+  document.getElementById('item-modal-overlay').classList.add('hidden');
+  editingItemId=null;
+  if(mediaRecorder && mediaRecorder.state!=='inactive'){
+    recordCancelled=true;
+    clearInterval(recordTimerInterval);
+    document.getElementById('audio-recorder-panel').classList.add('hidden');
+    mediaRecorder.stop();
+  }
+}
+
+document.querySelectorAll('#type-picker .type-opt').forEach(opt=>{
+  opt.onclick=()=>{ setModalType(opt.dataset.type); };
+});
+
+document.getElementById('add-link-btn').onclick=()=>{
+  modalLinks.push('');
+  renderLinksList();
+  const inputs=document.querySelectorAll('#links-list input');
+  if(inputs.length) inputs[inputs.length-1].focus();
+};
+document.getElementById('add-photo-btn').onclick=()=>document.getElementById('f-file').click();
+document.getElementById('add-doc-btn').onclick=()=>document.getElementById('f-doc-input').click();
+
+/* ---------- Запись аудио ---------- */
+let mediaRecorder=null, recordedChunks=[], recordStartTime=0, recordTimerInterval=null, mediaStream=null, recordCancelled=false;
+const MAX_RECORD_MS = 10*60*1000;
+
+document.getElementById('add-table-btn').onclick=()=>{
+  const id = uid();
+  modalTables.push({id, rows:[['','',''],['','',''],['','','']]});
+  renderTablesList();
+  insertTokenAtCursor('table', id);
+};
+document.getElementById('add-audio-btn').onclick=async ()=>{
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert('Этот браузер не поддерживает запись звука.');
+    return;
+  }
+  try{
+    mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){
+    alert('Не удалось получить доступ к микрофону — проверьте разрешения браузера для этого сайта.');
+    return;
+  }
+  let mimeType='';
+  ['audio/webm;codecs=opus','audio/webm','audio/mp4'].some(t=>{
+    if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)){ mimeType=t; return true; }
+    return false;
+  });
+  recordedChunks=[]; recordCancelled=false;
+  try{
+    mediaRecorder = new MediaRecorder(mediaStream, mimeType?{mimeType}:undefined);
+  }catch(e){
+    alert('Запись звука не поддерживается этим браузером.');
+    mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null;
+    return;
+  }
+  mediaRecorder.ondataavailable=(e)=>{ if(e.data && e.data.size>0) recordedChunks.push(e.data); };
+  mediaRecorder.onstop=()=>{
+    if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+    if(recordCancelled || recordedChunks.length===0) return;
+    const blob = new Blob(recordedChunks, {type: mimeType||'audio/webm'});
+    const durationSec = Math.max(1, Math.round((Date.now()-recordStartTime)/1000));
+    const reader = new FileReader();
+    reader.onload=(ev)=>{
+      const id = uid();
+      modalAudio.push({id, name:'Голосовая заметка '+new Date().toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), dataUrl:ev.target.result, duration:durationSec, size:blob.size});
+      renderAudioList();
+      insertTokenAtCursor('audio', id);
+    };
+    reader.readAsDataURL(blob);
+  };
+  mediaRecorder.start();
+  recordStartTime=Date.now();
+  document.getElementById('audio-recorder-panel').classList.remove('hidden');
+  document.getElementById('audio-rec-timer').textContent='00:00';
+  recordTimerInterval=setInterval(()=>{
+    const elapsed=Date.now()-recordStartTime;
+    document.getElementById('audio-rec-timer').textContent=formatDuration(Math.floor(elapsed/1000));
+    if(elapsed>=MAX_RECORD_MS){ flashSaved('лимит записи — 10 минут'); stopRecording(); }
+  }, 250);
+};
+function stopRecording(){
+  clearInterval(recordTimerInterval);
+  document.getElementById('audio-recorder-panel').classList.add('hidden');
+  if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop();
+}
+document.getElementById('audio-rec-stop-btn').onclick=stopRecording;
+document.getElementById('audio-rec-cancel-btn').onclick=()=>{
+  recordCancelled=true;
+  clearInterval(recordTimerInterval);
+  document.getElementById('audio-recorder-panel').classList.add('hidden');
+  if(mediaRecorder && mediaRecorder.state!=='inactive') mediaRecorder.stop();
+};
+
+async function tryCompressViaBitmap(blob){
+  if(!window.createImageBitmap) return null;
+  let bitmap;
+  try{ bitmap = await createImageBitmap(blob, {resizeWidth:1100, resizeQuality:'medium'}); }
+  catch(e){
+    try{ bitmap = await createImageBitmap(blob); }
+    catch(e2){ return null; }
+  }
+  const maxDim=1100;
+  let w=bitmap.width, h=bitmap.height;
+  if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+  const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+  canvas.getContext('2d').drawImage(bitmap,0,0,w,h);
+  if(bitmap.close) bitmap.close();
+  return canvas.toDataURL('image/jpeg',0.72);
+}
+function tryCompressViaImg(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('read'));
+    reader.onload=(ev)=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('decode'));
+      img.onload=()=>{
+        const canvas=document.createElement('canvas'); const maxDim=1100;
+        let w=img.width, h=img.height;
+        if(w>maxDim||h>maxDim){ if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; } }
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',0.72));
+      };
+      img.src=ev.target.result;
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+function readAsDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('read'));
+    reader.onload=(ev)=>resolve(ev.target.result);
+    reader.readAsDataURL(blob);
+  });
+}
+function withTimeout(promise, ms){
+  return new Promise((resolve,reject)=>{
+    const t=setTimeout(()=>reject(new Error('timeout')), ms);
+    promise.then(v=>{ clearTimeout(t); resolve(v); }, e=>{ clearTimeout(t); reject(e); });
+  });
+}
+async function processPhotoBlob(blob, originalName){
+  const name = originalName || 'photo.jpg';
+
+  let compressed = null;
+  try{ compressed = await withTimeout(tryCompressViaBitmap(blob), 15000); }catch(e){}
+  if(!compressed){
+    try{ compressed = await withTimeout(tryCompressViaImg(blob), 15000); }catch(e){}
+  }
+  if(compressed){
+    const id = uid();
+    modalPhotos.push({id, src:compressed});
+    renderPhotosList();
+    insertTokenAtCursor('photo', id);
+    flashSaved('фото добавлено');
+    return;
+  }
+
+  // Ни один способ сжатия не сработал (или завис дольше 15 секунд) — скорее всего формат,
+  // который браузер не умеет декодировать (например HEIC). Не теряем фото — прикладываем как обычный файл.
+  if(blob.size > MAX_DOC_BYTES){
+    alert('Не удалось сжать «'+name+'» (возможно, формат вроде HEIC), а сам файл слишком большой ('+humanFileSize(blob.size)+') для прикрепления как есть — максимум 20 МБ. Попробуйте пересохранить фото в JPEG перед загрузкой.');
+    return;
+  }
+  try{
+    const dataUrl = await withTimeout(readAsDataUrl(blob), 15000);
+    const id = uid();
+    modalFiles.push({id, name, type:blob.type||'application/octet-stream', size:blob.size, dataUrl});
+    renderDocsList();
+    insertTokenAtCursor('file', id);
+    flashSaved('«'+name+'» добавлено как файл (без сжатия)');
+  }catch(e){
+    alert('Не удалось прикрепить «'+name+'» — файл повреждён, в неподдерживаемом формате, либо обработка заняла слишком много времени.');
+  }
+}
+
+document.getElementById('f-file').onchange=async (e)=>{
+  const files = Array.from(e.target.files||[]);
+  e.target.value='';
+  for(const f of files){
+    await processPhotoBlob(f, f.name);
+  }
+};
+
+document.getElementById('item-modal-overlay').addEventListener('paste', async (e)=>{
+  if(document.getElementById('item-modal-overlay').classList.contains('hidden')) return;
+  const items = e.clipboardData && e.clipboardData.items;
+  if(!items) return;
+  const blobs=[];
+  for(const it of items){
+    if(it.type && it.type.startsWith('image/')){
+      const blob = it.getAsFile();
+      if(blob) blobs.push(blob);
+    }
+  }
+  if(blobs.length) e.preventDefault();
+  for(const blob of blobs){
+    await processPhotoBlob(blob);
+  }
+});
+
+const MAX_DOC_BYTES = 20*1024*1024;
+document.getElementById('f-doc-input').onchange=(e)=>{
+  Array.from(e.target.files||[]).forEach(file=>{
+    if(file.size > MAX_DOC_BYTES){
+      alert('Файл «'+file.name+'» слишком большой ('+humanFileSize(file.size)+') — локальное хранилище рассчитано максимум на 20 МБ на файл. Для больших файлов лучше загрузить их в облако самостоятельно и прикрепить ссылку.');
+      return;
+    }
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      const id = uid();
+      modalFiles.push({id, name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:ev.target.result});
+      renderDocsList();
+      insertTokenAtCursor('file', id);
+    };
+    reader.onerror=()=>{ alert('Не удалось прочитать файл «'+file.name+'».'); };
+    reader.readAsDataURL(file);
+  });
+  e.target.value='';
+};
+
+document.getElementById('insert-bullet-btn').onclick=()=>insertAtCursor(document.getElementById('f-content'),'• ');
+document.getElementById('insert-number-btn').onclick=()=>{
+  const ta=document.getElementById('f-content');
+  const lines=ta.value.split('\n').filter(l=>/^\d+\.\s/.test(l));
+  insertAtCursor(ta, (lines.length+1)+'. ');
+};
+document.getElementById('insert-checklist-btn').onclick=()=>{
+  addChecklistItem();
+  document.getElementById('checklist-wrap').scrollIntoView({behavior:'smooth', block:'nearest'});
+};
+function insertAtCursor(textarea, text){
+  const start=textarea.selectionStart, end=textarea.selectionEnd;
+  const before=textarea.value.substring(0,start), after=textarea.value.substring(end);
+  const needsNl = before.length>0 && !before.endsWith('\n');
+  const insert=(needsNl?'\n':'')+text;
+  textarea.value = before+insert+after;
+  const pos=(before+insert).length;
+  textarea.focus(); textarea.selectionStart=textarea.selectionEnd=pos;
+}
+function insertTokenAtCursor(type, id){
+  const ta = document.getElementById('f-content');
+  const token = '[['+type+':'+id+']]';
+  const start = (typeof ta.selectionStart==='number') ? ta.selectionStart : ta.value.length;
+  const end = (typeof ta.selectionEnd==='number') ? ta.selectionEnd : start;
+  const before = ta.value.substring(0,start), after = ta.value.substring(end);
+  const needsNlBefore = before.length>0 && !before.endsWith('\n');
+  const needsNlAfter = after.length>0 && !after.startsWith('\n');
+  const insert = (needsNlBefore?'\n':'') + token + (needsNlAfter?'\n':'');
+  ta.value = before + insert + after;
+  const pos = (before+insert).length;
+  ta.selectionStart = ta.selectionEnd = pos;
+}
+function removeTokenFromText(type, id){
+  const ta = document.getElementById('f-content');
+  const token = '[['+type+':'+id+']]';
+  ta.value = ta.value.split(token).join('').replace(/\n{3,}/g,'\n\n');
+}
+document.getElementById('f-content').addEventListener('keydown', (e)=>{
+  if(e.key!=='Enter' || e.shiftKey) return;
+  const ta=e.target;
+  const value=ta.value, pos=ta.selectionStart;
+  const lineStart = value.lastIndexOf('\n', pos-1)+1;
+  const currentLine = value.substring(lineStart, pos);
+  const bulletMatch = currentLine.match(/^(\s*)•\s(.*)$/);
+  const numMatch = currentLine.match(/^(\s*)(\d+)\.\s(.*)$/);
+  if(bulletMatch){
+    e.preventDefault();
+    if(bulletMatch[2].trim()===''){
+      ta.value = value.substring(0,lineStart)+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=lineStart;
+    } else {
+      const insert='\n'+bulletMatch[1]+'• ';
+      ta.value = value.substring(0,pos)+insert+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=pos+insert.length;
+    }
+  } else if(numMatch){
+    e.preventDefault();
+    if(numMatch[3].trim()===''){
+      ta.value = value.substring(0,lineStart)+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=lineStart;
+    } else {
+      const insert='\n'+numMatch[1]+(parseInt(numMatch[2],10)+1)+'. ';
+      ta.value = value.substring(0,pos)+insert+value.substring(pos);
+      ta.selectionStart=ta.selectionEnd=pos+insert.length;
+    }
+  }
+});
+
+document.getElementById('add-checklist-item-btn').onclick=addChecklistItem;
+document.getElementById('bulk-checklist-btn').onclick=()=>{
+  document.getElementById('bulk-checklist-panel').classList.remove('hidden');
+  document.getElementById('bulk-checklist-text').value='';
+  document.getElementById('bulk-checklist-text').focus();
+};
+document.getElementById('bulk-checklist-cancel-btn').onclick=()=>{
+  document.getElementById('bulk-checklist-panel').classList.add('hidden');
+};
+document.getElementById('bulk-checklist-apply-btn').onclick=()=>{
+  const lines = document.getElementById('bulk-checklist-text').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  lines.forEach(text=>currentChecklist.push({id:uid(), text, done:false}));
+  document.getElementById('bulk-checklist-panel').classList.add('hidden');
+  renderChecklist();
+};
+
+document.getElementById('f-reminder').addEventListener('change', ()=>{
+  if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+});
+function updateGcalCheckboxVisibility(){
+  const hasReminder = !!document.getElementById('f-reminder').value;
+  document.getElementById('gcal-sync-wrap').classList.toggle('hidden', !hasReminder);
+  document.getElementById('f-recurrence').classList.toggle('hidden', !hasReminder);
+  if(!hasReminder){ document.getElementById('f-gcal-sync').checked = false; document.getElementById('f-recurrence').value='none'; }
+}
+document.getElementById('f-reminder').addEventListener('input', updateGcalCheckboxVisibility);
+
+document.getElementById('item-modal-close').onclick=closeItemModal;
+document.getElementById('cancel-item-btn').onclick=closeItemModal;
+document.getElementById('item-modal-overlay').onclick=(e)=>{ if(e.target.id==='item-modal-overlay') closeItemModal(); };
+document.getElementById('new-item-btn').onclick=()=>openItemModal(null);
+document.getElementById('share-item-btn').onclick=()=>{ const it=ITEMS.find(i=>i.id===editingItemId); if(it) shareItem(it); };
+document.getElementById('print-item-btn').onclick=()=>{ const it=ITEMS.find(i=>i.id===editingItemId); if(it) printItem(it); };
+function printItem(item){
+  const win = window.open('', '_blank');
+  if(!win){ alert('Не удалось открыть окно печати — проверьте, не блокирует ли браузер всплывающие окна для этого сайта.'); return; }
+  const tagsTxt = item.tagIds.map(id=>tagById(id)?.label).filter(Boolean).join(', ');
+  const checklistHtml = (item.checklist||[]).map(c=>`<div style="margin:5px 0; font-size:14px;">${c.done?'☑':'☐'} <span style="${c.done?'text-decoration:line-through;color:#888;':''}">${escapeHtml(c.text)}</span></div>`).join('');
+  const linksHtml = (item.links||[]).map(l=>`<div style="font-size:13px; margin:3px 0;">🔗 ${escapeHtml(l)}</div>`).join('');
+  const photosHtml = (item.photos||[]).map(p=>`<img src="${p.src}" style="max-width:220px; max-height:220px; margin:6px 6px 0 0; border-radius:6px; border:1px solid #ddd;">`).join('');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(item.title||'Запись из D-Not')}</title>
+    <style>
+      body{ font-family:-apple-system,Segoe UI,Roboto,sans-serif; padding:32px; color:#111; max-width:700px; margin:0 auto; }
+      h1{ font-size:21px; margin:0 0 4px 0; }
+      .meta{ color:#777; font-size:12px; margin-bottom:20px; }
+      .text{ white-space:pre-wrap; font-size:14px; line-height:1.5; margin-bottom:18px; }
+      h3{ font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#777; margin:20px 0 8px 0; }
+    </style>
+    </head><body>
+      <h1>${escapeHtml(item.title||'(без названия)')}</h1>
+      <div class="meta">${formatDate(item.createdAt)}${tagsTxt ? ' · '+escapeHtml(tagsTxt) : ''}</div>
+      ${item.text ? `<div class="text">${escapeHtml(item.text)}</div>` : ''}
+      ${linksHtml ? '<h3>Ссылки</h3>'+linksHtml : ''}
+      ${photosHtml ? '<h3>Фото</h3><div>'+photosHtml+'</div>' : ''}
+      ${checklistHtml ? '<h3>Чек-лист</h3>'+checklistHtml : ''}
+    </body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>win.print(), 350);
+}
+
+document.getElementById('delete-item-btn').onclick=()=>{
+  if(!editingItemId) return;
+  const it = ITEMS.find(i=>i.id===editingItemId);
+  if(!it) return;
+  if(it.trashed){
+    if(!confirm('Удалить эту запись навсегда? Отменить будет нельзя.')) return;
+    if(it.gcalEventId && gcalIsConnected()) gcalDeleteEvent(it.gcalEventId).catch(()=>{});
+    ITEMS = ITEMS.filter(x=>x.id!==editingItemId);
+    saveItems(); closeItemModal(); render();
+  } else {
+    if(!confirm('Переместить эту запись в корзину?')) return;
+    ITEMS = ITEMS.map(x=>x.id===editingItemId ? {...x, trashed:true, trashedAt:Date.now()} : x);
+    saveItems(); closeItemModal(); render();
+  }
+};
+document.getElementById('restore-item-btn').onclick=()=>{
+  if(!editingItemId) return;
+  ITEMS = ITEMS.map(x=>x.id===editingItemId ? {...x, trashed:false, trashedAt:null} : x);
+  saveItems(); closeItemModal(); render();
+};
+function duplicateItem(it){
+  if(!it) return null;
+  let dupText = it.text||'';
+  (it.audio||[]).forEach(a=>{ dupText = dupText.split('[[audio:'+a.id+']]').join(''); });
+  dupText = dupText.replace(/\n{3,}/g,'\n\n');
+  const dup = {
+    id: uid(),
+    kind: it.kind,
+    title: it.title,
+    text: dupText,
+    links: (it.links||[]).slice(),
+    photos: (it.photos||[]).map(p=>({...p})),
+    files: (it.files||[]).map(f=>({...f})),
+    audio: [],
+    tables: (it.tables||[]).map(t=>({id:t.id, rows:t.rows.map(r=>r.slice())})),
+    taskDone: false,
+    tagIds: (it.tagIds||[]).slice(),
+    checklist: (it.checklist||[]).map(c=>({id:uid(), text:c.text, done:false})),
+    reminderAt: null,
+    reminderNotified: false,
+    recurrence: it.recurrence||'none',
+    gcalSync: false,
+    gcalEventId: null,
+    trashed: false,
+    trashedAt: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  ITEMS.push(dup);
+  saveItems();
+  return dup;
+}
+document.getElementById('duplicate-item-btn').onclick=()=>{
+  const it = ITEMS.find(i=>i.id===editingItemId);
+  if(!it) return;
+  const dup = duplicateItem(it);
+  closeItemModal();
+  render();
+  openItemModal(dup);
+  flashSaved('чистый дубликат создан');
+};
+
+document.getElementById('save-item-btn').onclick=()=>{
+  const title=document.getElementById('f-title').value.trim();
+  const text=document.getElementById('f-content').value.trim();
+  const links = modalLinks.map(l=>l.trim()).filter(Boolean);
+  const photos = modalPhotos.slice();
+  const files = modalFiles.slice();
+  const audio = modalAudio.slice();
+  const tables = modalTables.filter(t=>t.rows.some(r=>r.some(c=>c.trim()!=='')));
+
+  if(!title && !text && !links.length && !photos.length && !files.length && !audio.length && !tables.length){ alert('Добавьте хотя бы заголовок, текст, ссылку, фото, файл, аудио или таблицу.'); return; }
+
+  const reminderVal=document.getElementById('f-reminder').value;
+  const reminderAt = reminderVal ? new Date(reminderVal).getTime() : null;
+  const recurrence = reminderAt ? document.getElementById('f-recurrence').value : 'none';
+  const cleanChecklist = currentChecklist.filter(c=>c.text.trim()!=='').map(c=>({id:c.id,text:c.text.trim(),done:!!c.done}));
+  const gcalSync = !document.getElementById('gcal-sync-wrap').classList.contains('hidden') && document.getElementById('f-gcal-sync').checked;
+
+  const base = editingItemId ? ITEMS.find(it=>it.id===editingItemId) : null;
+  const newItem = {
+    id: editingItemId || uid(),
+    kind: currentType, title, text, links, photos, files, audio, tables,
+    taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
+    tagIds: Array.from(modalTagIds),
+    checklist: cleanChecklist,
+    reminderAt,
+    reminderNotified: (base && base.reminderAt===reminderAt) ? !!base.reminderNotified : false,
+    recurrence,
+    gcalSync,
+    gcalEventId: base ? base.gcalEventId : null,
+    trashed: base ? !!base.trashed : false,
+    trashedAt: base ? (base.trashedAt||null) : null,
+    createdAt: base ? base.createdAt : Date.now(),
+    updatedAt: Date.now()
+  };
+  if(editingItemId) ITEMS = ITEMS.map(it=>it.id===editingItemId ? newItem : it);
+  else ITEMS.push(newItem);
+  saveItems();
+  closeItemModal();
+  render();
+  if(reminderAt) syncItemToCalendar(newItem, gcalSync);
+  if(!base || !base.taskDone){ if(newItem.taskDone) maybeSpawnRecurrence(newItem); }
+};
+
+/* =========================================================
+   МОДАЛКА: ТЕГ
+   ========================================================= */
+let tagModalParentId=null, tagModalEditId=null;
+function openTagModal({parentId=null, editId=null}={}){
+  tagModalParentId=parentId; tagModalEditId=editId;
+  const existing = editId ? tagById(editId) : null;
+  document.getElementById('tag-modal-title').textContent = editId ? 'Редактировать раздел' : 'Новый подраздел';
+  document.getElementById('tag-label').value = existing ? existing.label : '';
+  document.getElementById('tag-code').value = existing ? existing.code : '';
+  document.getElementById('tag-modal-hint').textContent = (!editId && parentId) ? `Будет добавлен как подраздел «${tagById(parentId).label}».` : '';
+  document.getElementById('tag-modal-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('tag-label').focus(),50);
+}
+function closeTagModal(){ document.getElementById('tag-modal-overlay').classList.add('hidden'); }
+document.getElementById('tag-modal-close').onclick=closeTagModal;
+document.getElementById('tag-modal-cancel').onclick=closeTagModal;
+document.getElementById('tag-modal-overlay').onclick=(e)=>{ if(e.target.id==='tag-modal-overlay') closeTagModal(); };
+document.getElementById('tag-modal-save').onclick=()=>{
+  const label=document.getElementById('tag-label').value.trim();
+  const code=document.getElementById('tag-code').value.trim();
+  if(!label){ alert('Введите название раздела.'); return; }
+  if(tagModalEditId){ TAGS=TAGS.map(t=>t.id===tagModalEditId?{...t,label,code}:t); }
+  else{
+    const id=uid();
+    const siblings=childrenOf(tagModalParentId);
+    const nextOrder = siblings.length ? Math.max(...siblings.map(t=>t.order??0))+1 : 0;
+    TAGS.push({id,code,label,parent:tagModalParentId,order:nextOrder});
+    expanded.add(tagModalParentId);
+  }
+  saveTags(); closeTagModal(); render();
+};
+
+function isDescendantTag(candidateId, ancestorId){
+  let cur = tagById(candidateId);
+  while(cur){ if(cur.parent===ancestorId) return true; cur = tagById(cur.parent); }
+  return false;
+}
+function reorderTag(draggedId, targetId, mode){
+  const dragged = tagById(draggedId), target = tagById(targetId);
+  if(!dragged || !target || dragged.id===target.id) return;
+  if(dragged.id===target.parent || isDescendantTag(target.id, dragged.id)){
+    alert('Нельзя переместить раздел внутрь самого себя.');
+    return;
+  }
+  const newParent = mode==='child' ? target.id : target.parent;
+  let siblings = childrenOf(newParent).filter(t=>t.id!==dragged.id);
+  let insertIndex = siblings.length;
+  if(mode!=='child'){
+    const targetIndex = siblings.findIndex(t=>t.id===target.id);
+    insertIndex = mode==='before' ? targetIndex : targetIndex+1;
+  }
+  siblings.splice(insertIndex, 0, dragged);
+  const idsInOrder = siblings.map(t=>t.id);
+  TAGS = TAGS.map(t=>{
+    const idx = idsInOrder.indexOf(t.id);
+    if(idx===-1) return t;
+    return {...t, parent:newParent, order:idx};
+  });
+  if(newParent) expanded.add(newParent);
+  saveTags();
+  render();
+}
+function makeTagRowDraggable(row, tagId){
+  row.addEventListener('pointerdown', (e)=>{
+    if(window.innerWidth<=720) return;
+    if(e.pointerType==='mouse' && e.button!==0) return;
+    if(e.target.closest('.node-actions') || e.target.closest('.chevron')) return;
+    const startX=e.clientX, startY=e.clientY;
+    let started=false, ghost=null, currentTarget=null, currentMode=null;
+    function clearHover(){ document.querySelectorAll('.node-row.drop-hover, .node-row.drop-before, .node-row.drop-after').forEach(el=>el.classList.remove('drop-hover','drop-before','drop-after')); }
+    function onMove(ev){
+      const dx=ev.clientX-startX, dy=ev.clientY-startY;
+      if(!started && Math.hypot(dx,dy)>10){
+        started=true;
+        ghost=document.createElement('div'); ghost.className='drag-ghost';
+        ghost.textContent='▸ '+(tagById(tagId)?.label||'раздел');
+        document.body.appendChild(ghost);
+        document.body.classList.add('dragging-active');
+      }
+      if(started){
+        ghost.style.left=(ev.clientX+14)+'px'; ghost.style.top=(ev.clientY+10)+'px';
+        clearHover();
+        const el=document.elementFromPoint(ev.clientX, ev.clientY);
+        const rowEl = el ? el.closest('.node-row') : null;
+        const rid = rowEl ? rowEl.dataset.id : null;
+        if(rowEl && rid && !['inbox','processed','calendar','trash'].includes(rid) && rid!==tagId){
+          const rect=rowEl.getBoundingClientRect();
+          const relY=(ev.clientY-rect.top)/rect.height;
+          if(relY<0.25){ currentMode='before'; rowEl.classList.add('drop-before'); }
+          else if(relY>0.75){ currentMode='after'; rowEl.classList.add('drop-after'); }
+          else { currentMode='child'; rowEl.classList.add('drop-hover'); }
+          currentTarget=rid;
+        } else { currentTarget=null; currentMode=null; }
+      }
+    }
+    function onUp(){
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      clearHover();
+      if(ghost) ghost.remove();
+      document.body.classList.remove('dragging-active');
+      if(started){
+        row.dataset.justDragged='1';
+        if(currentTarget && currentMode) reorderTag(tagId, currentTarget, currentMode);
+      }
+    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+}
+
+function deleteTag(tagId){
+  const tag=tagById(tagId); if(!tag) return;
+  if(childrenOf(tagId).length>0){ alert('Сначала удалите или перенесите подразделы внутри этого раздела.'); return; }
+  const count=itemCountForTag(tagId);
+  const msg = count>0
+    ? `Удалить раздел «${tag.label}»? ${count} запис${count===1?'ь':'и/ей'} потеряют эту метку (сама запись не удалится; если меток больше не останется — она вернётся во «Входящие»).`
+    : `Удалить пустой раздел «${tag.label}»?`;
+  if(!confirm(msg)) return;
+  TAGS=TAGS.filter(t=>t.id!==tagId);
+  ITEMS=ITEMS.map(it=> it.tagIds.includes(tagId) ? {...it, tagIds:it.tagIds.filter(id=>id!==tagId)} : it);
+  if(selectedNodeId===tagId) selectedNodeId='inbox';
+  saveTags(); saveItems(); render();
+}
+
+/* =========================================================
+   ЭКСПОРТ / ИМПОРТ
+   ========================================================= */
+function exportData(){
+  const data={tags:TAGS, items:ITEMS, exportedAt:new Date().toISOString()};
+  const blob=new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='dnot-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function importDataFromFile(file){
+  const reader=new FileReader();
+  reader.onload=async (e)=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.tags||!data.items) throw new Error('неверный формат файла');
+      const replace = confirm('ОК — заменить все текущие данные файлом.\nОтмена — добавить записи из файла к текущим (свою структуру разделов оставить).');
+      if(replace){ TAGS=data.tags; ITEMS=data.items; }
+      else{
+        const existingTagIds=new Set(TAGS.map(t=>t.id));
+        data.tags.forEach(t=>{ if(!existingTagIds.has(t.id)) TAGS.push(t); });
+        const existingItemIds=new Set(ITEMS.map(i=>i.id));
+        data.items.forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
+      }
+      await saveTags(); await saveItems();
+      alert('Импорт завершён.');
+      render();
+    }catch(err){ alert('Не удалось прочитать файл: '+err.message); }
+  };
+  reader.readAsText(file);
+}
+
+/* =========================================================
+   НАСТРОЙКИ
+   ========================================================= */
+function renderPassField(){
+  const wrap=document.getElementById('pass-field');
+  if(SETTINGS.passHash){
+    wrap.innerHTML = `<label>Код доступа</label>
+      <div class="hint" style="margin-bottom:8px;">Код установлен — при открытии приложения потребуется вводить его.</div>
+      <button class="btn btn-block btn-danger" id="remove-pass-btn">Убрать код доступа</button>`;
+    wrap.querySelector('#remove-pass-btn').onclick=async ()=>{
+      if(!confirm('Убрать код доступа?')) return;
+      delete SETTINGS.passHash; await saveSettings(); renderPassField();
+    };
+  } else {
+    wrap.innerHTML = `<label>Код доступа</label>
+      <input type="password" id="new-pass" placeholder="Придумайте код (мин. 4 символа)" autocomplete="new-password" style="margin-bottom:8px;">
+      <button class="btn btn-block btn-accent" id="set-pass-btn">Установить код</button>
+      <div class="hint">Код хранится только на этом устройстве в зашифрованном виде и защищает от случайного открытия приложения посторонним человеком, у которого есть физический доступ к устройству.</div>`;
+    wrap.querySelector('#set-pass-btn').onclick=async ()=>{
+      const val=document.getElementById('new-pass').value;
+      if(val.length<4){ alert('Код должен быть не короче 4 символов.'); return; }
+      SETTINGS.passHash=await sha256(val); await saveSettings(); renderPassField();
+      alert('Код доступа установлен.');
+    };
+  }
+}
+function openSettingsModal(){ renderPassField(); renderGcalField(); renderDriveField(); document.getElementById('settings-modal-overlay').classList.remove('hidden'); }
+function closeSettingsModal(){ document.getElementById('settings-modal-overlay').classList.add('hidden'); updateBackupStatusIndicator(); }
+document.getElementById('settings-btn').onclick=openSettingsModal;
+document.getElementById('backup-status-top').onclick=openSettingsModal;
+document.getElementById('conflict-restore-btn').onclick=()=>{ driveDownloadBackup(); };
+document.getElementById('conflict-dismiss-btn').onclick=()=>{ bannerDismissed=true; renderConflictBanner(); };
+document.getElementById('wipe-device-btn').onclick=async ()=>{
+  if(!confirm('Это сотрёт ВСЕ заметки, задачи и настройки на этом устройстве (в этом браузере). Бэкап на Google Диске и события в Google Календаре останутся нетронутыми.\n\nПродолжить?')) return;
+  if(!confirm('Точно? Локальную копию на этом устройстве потом не вернуть — только повторным восстановлением с Google Диска.')) return;
+  try{
+    await idbClearAll();
+    location.reload();
+  }catch(e){
+    alert('Не удалось очистить: '+e.message);
+  }
+};
+document.getElementById('settings-modal-close').onclick=closeSettingsModal;
+document.getElementById('settings-modal-close2').onclick=closeSettingsModal;
+document.getElementById('settings-modal-overlay').onclick=(e)=>{ if(e.target.id==='settings-modal-overlay') closeSettingsModal(); };
+
+
+/* =========================================================
+   ПОИСК / РЕСАЙЗ / МОБИЛЬНОЕ МЕНЮ
+   ========================================================= */
+document.getElementById('search-input').oninput=(e)=>{ searchQuery=e.target.value; renderHeader(); renderList(); };
+document.querySelectorAll('.kind-filter-btn').forEach(btn=>{
+  btn.onclick=()=>{
+    kindFilter=btn.dataset.kind;
+    document.querySelectorAll('.kind-filter-btn').forEach(b=>b.classList.toggle('active', b===btn));
+    renderList();
+  };
+});
+
+document.getElementById('select-mode-btn').onclick=()=>{
+  selectMode = !selectMode;
+  selectedIds = new Set();
+  document.getElementById('select-mode-btn').textContent = selectMode ? '✕ Отменить выбор' : '☑ Выбрать';
+  document.getElementById('select-toolbar').classList.toggle('hidden', !selectMode);
+  updateSelectToolbar();
+  render();
+};
+document.getElementById('select-cancel-btn').onclick=exitSelectMode;
+document.getElementById('select-trash-btn').onclick=()=>{
+  if(!selectedIds.size) return;
+  if(!confirm('Переместить '+selectedIds.size+' запис(ей) в корзину?')) return;
+  ITEMS = ITEMS.map(it=> selectedIds.has(it.id) ? {...it, trashed:true, trashedAt:Date.now()} : it);
+  saveItems();
+  flashSaved('в корзине: '+selectedIds.size);
+  exitSelectMode();
+};
+document.getElementById('select-tag-btn').onclick=()=>{ if(selectedIds.size) openBulkTagPicker(); };
+function openBulkTagPicker(){
+  const box=document.getElementById('bulk-tagpick-tree');
+  box.innerHTML='';
+  function walk(parentId, depth){
+    childrenOf(parentId).forEach(t=>{
+      const row=document.createElement('div'); row.className='tagpick-row'; row.style.marginLeft=(depth*14)+'px'; row.style.cursor='pointer';
+      row.innerHTML=`<span class="tagpick-label">${escapeHtml(t.label)}</span>${t.code?`<span class="tagpick-code mono">${escapeHtml(t.code)}</span>`:''}`;
+      row.onclick=()=>applyBulkTag(t.id);
+      box.appendChild(row);
+      walk(t.id, depth+1);
+    });
+  }
+  walk(null,0);
+  document.getElementById('bulk-tag-overlay').classList.remove('hidden');
+}
+function closeBulkTagPicker(){ document.getElementById('bulk-tag-overlay').classList.add('hidden'); }
+function applyBulkTag(tagId){
+  const count=selectedIds.size;
+  ITEMS = ITEMS.map(it=> selectedIds.has(it.id) ? {...it, tagIds: it.tagIds.includes(tagId)?it.tagIds:[...it.tagIds, tagId]} : it);
+  saveItems();
+  closeBulkTagPicker();
+  flashSaved('метка добавлена ('+count+')');
+  exitSelectMode();
+}
+document.getElementById('bulk-tag-close').onclick=closeBulkTagPicker;
+document.getElementById('bulk-tag-cancel').onclick=closeBulkTagPicker;
+document.getElementById('bulk-tag-overlay').onclick=(e)=>{ if(e.target.id==='bulk-tag-overlay') closeBulkTagPicker(); };
+
+(function(){
+  const resizer=document.getElementById('resizer'), sidebar=document.getElementById('sidebar');
+  let dragging=false;
+  resizer.addEventListener('mousedown', ()=>{ dragging=true; resizer.classList.add('active'); document.body.style.userSelect='none'; });
+  window.addEventListener('mousemove', (e)=>{ if(!dragging) return; const w=Math.min(Math.max(e.clientX,230), window.innerWidth*0.6); sidebar.style.width=w+'px'; });
+  window.addEventListener('mouseup', ()=>{ dragging=false; resizer.classList.remove('active'); document.body.style.userSelect=''; });
+})();
+
+const mobileBtn=document.getElementById('mobile-menu-btn');
+const sidebarEl=document.getElementById('sidebar');
+const backdropEl=document.getElementById('sidebar-backdrop');
+function openMobileSidebar(){ sidebarEl.classList.add('mobile-open'); backdropEl.classList.add('show'); }
+function closeMobileSidebar(){ sidebarEl.classList.remove('mobile-open'); backdropEl.classList.remove('show'); }
+mobileBtn.onclick=()=>{ sidebarEl.classList.contains('mobile-open') ? closeMobileSidebar() : openMobileSidebar(); };
+backdropEl.onclick=closeMobileSidebar;
+document.getElementById('item-list').addEventListener('click', closeMobileSidebar);
+
+(function(){
+  let startX=null, startY=null, dx=0, tracking=false;
+  sidebarEl.addEventListener('touchstart', (e)=>{
+    if(window.innerWidth>720 || !sidebarEl.classList.contains('mobile-open')) return;
+    tracking=true; dx=0;
+    startX=e.touches[0].clientX; startY=e.touches[0].clientY;
+    sidebarEl.style.transition='none';
+  }, {passive:true});
+  sidebarEl.addEventListener('touchmove', (e)=>{
+    if(!tracking) return;
+    dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if(Math.abs(dy) > Math.abs(dx)) return; // вертикальный скролл — не мешаем
+    if(dx<0){ sidebarEl.style.transform = `translateX(${dx}px)`; }
+  }, {passive:true});
+  sidebarEl.addEventListener('touchend', ()=>{
+    if(!tracking) return;
+    tracking=false;
+    sidebarEl.style.transition='';
+    sidebarEl.style.transform='';
+    if(dx < -60) closeMobileSidebar();
+  });
+})();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
+
+function openLightbox(src){
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox-overlay').classList.remove('hidden');
+}
+function closeLightbox(){
+  document.getElementById('lightbox-overlay').classList.add('hidden');
+  document.getElementById('lightbox-img').src = '';
+}
+document.getElementById('lightbox-close').onclick = closeLightbox;
+document.getElementById('lightbox-overlay').onclick = (e)=>{ if(e.target.id==='lightbox-overlay') closeLightbox(); };
+
+function isPreviewableFile(file){
+  const type = file.type||'';
+  const name = file.name||'';
+  if(type==='application/pdf' || /\.pdf$/i.test(name)) return 'pdf';
+  if(type.startsWith('video/')) return 'video';
+  if(type.startsWith('image/')) return 'image';
+  return null;
+}
+function openFilePreview(file){
+  const kind = isPreviewableFile(file);
+  const body = document.getElementById('file-preview-body');
+  const dl = document.getElementById('file-preview-download');
+  dl.href = file.dataUrl; dl.download = file.name || 'file';
+  if(!kind){
+    // предпросмотр не умеем — сразу скачиваем
+    dl.click();
+    return;
+  }
+  if(kind==='pdf') body.innerHTML = `<iframe src="${file.dataUrl}"></iframe>`;
+  else if(kind==='video') body.innerHTML = `<video controls autoplay src="${file.dataUrl}"></video>`;
+  else body.innerHTML = `<img src="${file.dataUrl}" alt="">`;
+  document.getElementById('file-preview-overlay').classList.remove('hidden');
+}
+function closeFilePreview(){
+  document.getElementById('file-preview-overlay').classList.add('hidden');
+  document.getElementById('file-preview-body').innerHTML='';
+}
+document.getElementById('file-preview-close').onclick = closeFilePreview;
+
+document.addEventListener('keydown', (e)=>{
+  if(e.key!=='Escape') return;
+  if(!document.getElementById('lightbox-overlay').classList.contains('hidden')) closeLightbox();
+  if(!document.getElementById('file-preview-overlay').classList.contains('hidden')) closeFilePreview();
+  if(!document.getElementById('item-view-overlay').classList.contains('hidden')) closeItemView();
+});
+
+loadData();
+</script>
+</body>
+</html>
