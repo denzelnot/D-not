@@ -775,6 +775,7 @@ function renderGcalField(){
    ========================================================= */
 const DRIVE_BACKUP_NAME='dnot-backup.json';
 const DRIVE_FOLDER_NAME='D-Not';
+const DRIVE_ATTACHMENTS_FOLDER_NAME='Вложения';
 let driveBackupDebounce=null;
 
 async function driveFindFileId(){
@@ -803,6 +804,154 @@ async function driveEnsureFolder(){
   await saveSettings();
   return folder.id;
 }
+
+/* ---- Вложения как отдельные файлы на Drive (не в общем JSON) ---- */
+async function driveEnsureAttachmentsFolder(){
+  if(SETTINGS.driveAttachmentsFolderId) return SETTINGS.driveAttachmentsFolderId;
+  const parentId = await driveEnsureFolder();
+  const q = `name%3D%27${DRIVE_ATTACHMENTS_FOLDER_NAME}%27+and+mimeType%3D%27application%2Fvnd.google-apps.folder%27+and+%27${parentId}%27+in+parents+and+trashed%3Dfalse`;
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(data.files && data.files[0]){ SETTINGS.driveAttachmentsFolderId=data.files[0].id; await saveSettings(); return SETTINGS.driveAttachmentsFolderId; }
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'application/json' },
+    body: JSON.stringify({name:DRIVE_ATTACHMENTS_FOLDER_NAME, mimeType:'application/vnd.google-apps.folder', parents:[parentId]})
+  });
+  if(!createRes.ok) throw new Error('HTTP '+createRes.status);
+  const folder = await createRes.json();
+  SETTINGS.driveAttachmentsFolderId = folder.id;
+  await saveSettings();
+  return folder.id;
+}
+function dataUrlToBlob(dataUrl){
+  const parts = dataUrl.split(',');
+  const mimeMatch = parts[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr], {type:mime});
+}
+function blobToDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('read'));
+    reader.onload=(e)=>resolve(e.target.result);
+    reader.readAsDataURL(blob);
+  });
+}
+async function driveUploadAttachmentBlob(dataUrl, filename, mimeType){
+  const folderId = await driveEnsureAttachmentsFolder();
+  const blob = dataUrlToBlob(dataUrl);
+  const boundary='dnotattach';
+  const metadata=JSON.stringify({name:filename||'attachment', mimeType:mimeType||blob.type||'application/octet-stream', parents:[folderId]});
+  const metaPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${blob.type||'application/octet-stream'}\r\n\r\n`;
+  const closePart = `\r\n--${boundary}--`;
+  const body = new Blob([metaPart, blob, closePart]);
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'multipart/related; boundary='+boundary },
+    body
+  });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  return data.id;
+}
+async function driveDownloadAttachmentAsDataUrl(fileId){
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const blob = await res.blob();
+  return blobToDataUrl(blob);
+}
+// Загружает на Диск только те вложения, у которых ещё нет driveFileId (то есть новые с прошлого бэкапа).
+// Уже загруженные — не трогает, поэтому основной трафик после первого раза резко падает.
+async function ensureAttachmentsUploaded(){
+  const pending = [];
+  ITEMS.forEach(it=>{
+    (it.photos||[]).forEach(p=>{ if(!p.driveFileId && p.src) pending.push({kind:'photo', obj:p}); });
+    (it.files||[]).forEach(f=>{ if(!f.driveFileId && f.dataUrl) pending.push({kind:'file', obj:f}); });
+    (it.audio||[]).forEach(a=>{ if(!a.driveFileId && a.dataUrl) pending.push({kind:'audio', obj:a}); });
+  });
+  if(!pending.length) return false;
+  let done=0;
+  for(const entry of pending){
+    if(entry.kind==='photo'){
+      entry.obj.driveFileId = await driveUploadAttachmentBlob(entry.obj.src, 'photo-'+entry.obj.id+'.jpg', 'image/jpeg');
+    } else if(entry.kind==='file'){
+      entry.obj.driveFileId = await driveUploadAttachmentBlob(entry.obj.dataUrl, entry.obj.name||('file-'+entry.obj.id), entry.obj.type);
+    } else {
+      entry.obj.driveFileId = await driveUploadAttachmentBlob(entry.obj.dataUrl, (entry.obj.name||'audio-'+entry.obj.id)+'.webm', 'audio/webm');
+    }
+    done++;
+    flashSaved('вложения на Диск: '+done+'/'+pending.length);
+  }
+  // сохраняем полученные driveFileId локально напрямую (без saveItems(), чтобы не зациклить автобэкап)
+  try{ await idbSet('items', JSON.stringify(ITEMS)); }catch(e){}
+  return true;
+}
+// "Облегчённая" версия записей для самого JSON-бэкапа — без тяжёлых base64-полей,
+// только метаданные + ссылка (driveFileId) на уже загрученный отдельный файл вложения.
+function buildLeanItemsForBackup(){
+  return ITEMS.map(it=>({
+    ...it,
+    photos:(it.photos||[]).map(p=>({id:p.id, driveFileId:p.driveFileId||null})),
+    files:(it.files||[]).map(f=>({id:f.id, name:f.name, type:f.type, size:f.size, driveFileId:f.driveFileId||null})),
+    audio:(it.audio||[]).map(a=>({id:a.id, name:a.name, duration:a.duration, size:a.size, driveFileId:a.driveFileId||null}))
+  }));
+}
+// При восстановлении с Диска у входящих вложений есть только driveFileId — подкачиваем сами файлы,
+// чтобы после восстановления оффлайн-режим по-прежнему работал (данные снова целиком лежат в IndexedDB).
+async function hydrateAttachments(items){
+  let total=0;
+  items.forEach(it=>{
+    total += (it.photos||[]).filter(p=>p.driveFileId && !p.src).length;
+    total += (it.files||[]).filter(f=>f.driveFileId && !f.dataUrl).length;
+    total += (it.audio||[]).filter(a=>a.driveFileId && !a.dataUrl).length;
+  });
+  if(!total) return;
+  let done=0;
+  flashSaved('загрузка вложений: 0/'+total);
+  for(const it of items){
+    for(const p of (it.photos||[])){
+      if(p.driveFileId && !p.src){ p.src = await driveDownloadAttachmentAsDataUrl(p.driveFileId); done++; flashSaved('загрузка вложений: '+done+'/'+total); }
+    }
+    for(const f of (it.files||[])){
+      if(f.driveFileId && !f.dataUrl){ f.dataUrl = await driveDownloadAttachmentAsDataUrl(f.driveFileId); done++; flashSaved('загрузка вложений: '+done+'/'+total); }
+    }
+    for(const a of (it.audio||[])){
+      if(a.driveFileId && !a.dataUrl){ a.dataUrl = await driveDownloadAttachmentAsDataUrl(a.driveFileId); done++; flashSaved('загрузка вложений: '+done+'/'+total); }
+    }
+  }
+}
+// Ручная очистка: удаляет с Диска файлы вложений, на которые больше не ссылается ни одна запись
+// (например, фото удалили из заметки локально). Запускается кнопкой в Настройках, а не автоматически.
+async function cleanupOrphanedAttachments(){
+  if(!gcalIsConnected()){ alert('Сначала подключите Google в Настройках.'); return; }
+  try{
+    const folderId = await driveEnsureAttachmentsFolder();
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=%27${folderId}%27+in+parents+and+trashed%3Dfalse&spaces=drive&fields=files(id,name)&pageSize=1000`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    const referenced = new Set();
+    ITEMS.forEach(it=>{
+      (it.photos||[]).forEach(p=>{ if(p.driveFileId) referenced.add(p.driveFileId); });
+      (it.files||[]).forEach(f=>{ if(f.driveFileId) referenced.add(f.driveFileId); });
+      (it.audio||[]).forEach(a=>{ if(a.driveFileId) referenced.add(a.driveFileId); });
+    });
+    const orphans = (data.files||[]).filter(f=>!referenced.has(f.id));
+    if(!orphans.length){ alert('Неиспользуемых вложений на Диске не найдено.'); return; }
+    if(!confirm('Найдено '+orphans.length+' файлов на Диске, на которые больше нет ссылок в записях. Удалить их безвозвратно?')) return;
+    for(const f of orphans){
+      await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}`, { method:'DELETE', headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+    }
+    alert('Удалено файлов: '+orphans.length);
+  }catch(err){
+    alert('Не удалось очистить вложения: '+err.message);
+  }
+}
+
 let pendingDriveBackup=false;
 let driveRemoteNewer=false;
 let driveFreshnessCheckInFlight=false;
@@ -832,7 +981,13 @@ async function driveUploadBackup(silent){
     if(silent) return; // тихая автоматика никогда не лезет поверх чужих изменений
     if(!confirm('На Google Диске есть более новая версия (похоже, с другого устройства), которую вы ещё не смотрели на этом устройстве.\n\nВсё равно ПЕРЕЗАПИСАТЬ её тем, что видите здесь? Обычно лучше сначала нажать «Восстановить с Диска».')) return;
   }
-  const payload = JSON.stringify({tags:TAGS, items:ITEMS, exportedAt:new Date().toISOString()}, null, 2);
+  try{
+    await ensureAttachmentsUploaded();
+  }catch(err){
+    if(!silent) alert('Не удалось загрузить вложения на Google Диск: '+err.message+'\nОсновной бэкап отменён, чтобы не сослаться на несуществующие файлы.');
+    return;
+  }
+  const payload = JSON.stringify({tags:TAGS, items:buildLeanItemsForBackup(), exportedAt:new Date().toISOString()}, null, 2);
   try{
     let fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
     if(fileId){
@@ -886,13 +1041,20 @@ async function driveDownloadBackup(){
 
     try{ await idbSet('undo_snapshot', JSON.stringify({tags:TAGS, items:ITEMS, savedAt:Date.now()})); }catch(e){}
 
+    const incomingItems = data.items.map(migrateItem);
+    try{
+      await hydrateAttachments(incomingItems);
+    }catch(err){
+      alert('Часть вложений не удалось загрузить с Диска ('+err.message+') — они появятся при следующем удачном подключении к интернету, остальные данные восстановлены.');
+    }
+
     const replace = confirm('ОК — заменить текущие данные бэкапом с Диска.\nОтмена — добавить записи из бэкапа к текущим (свою структуру разделов оставить).\n\nТо, что сейчас на этом устройстве, будет автоматически подстраховано — если что-то пойдёт не так, в Настройках появится кнопка «Отменить восстановление».');
-    if(replace){ TAGS=data.tags; ITEMS=data.items.map(migrateItem); }
+    if(replace){ TAGS=data.tags; ITEMS=incomingItems; }
     else{
       const existingTagIds=new Set(TAGS.map(t=>t.id));
       data.tags.forEach(t=>{ if(!existingTagIds.has(t.id)) TAGS.push(t); });
       const existingItemIds=new Set(ITEMS.map(i=>i.id));
-      data.items.map(migrateItem).forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
+      incomingItems.forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
     }
     SETTINGS.driveBackupFileId = fileId;
     SETTINGS.driveBackupAt = Date.now();
@@ -989,24 +1151,31 @@ async function renderDriveField(){
   let undoSnap=null;
   try{ const raw=await idbGet('undo_snapshot'); if(raw) undoSnap=JSON.parse(raw); }catch(e){}
   wrap.innerHTML = `<label>Бэкап на Google Диске</label>
-    <div class="hint" style="margin-bottom:14px;">Файл «${DRIVE_BACKUP_NAME}» в папке «${DRIVE_FOLDER_NAME}» на вашем Диске (создаётся автоматически при первом сохранении). Последний бэкап: ${lastBackup}.</div>
+    <div class="hint" style="margin-bottom:14px;">Файл «${DRIVE_BACKUP_NAME}» + папка «${DRIVE_ATTACHMENTS_FOLDER_NAME}» в «${DRIVE_FOLDER_NAME}» на вашем Диске (создаются автоматически). Последний бэкап: ${lastBackup}.</div>
 
     <div style="border:1px solid var(--teal-dim); border-radius:8px; padding:12px; margin-bottom:20px;">
       <div style="font-size:11.5px; color:var(--teal); font-weight:600; margin-bottom:6px;">↑ ОТПРАВИТЬ ОТСЮДА В ОБЛАКО</div>
-      <div class="hint" style="margin:0 0 8px 0;">Загружает то, что вы видите на этом устройстве, поверх файла на Диске. Безопасно — ничего локально не меняет.</div>
+      <div class="hint" style="margin:0 0 8px 0;">Загружает то, что вы видите на этом устройстве, поверх файла на Диске. Безопасно — ничего локально не меняет. Фото/файлы/аудио, которые уже были на Диске раньше, повторно не перекачиваются.</div>
       <button class="btn btn-block btn-accent" id="drive-upload-btn">⭱ Сохранить на Диск сейчас</button>
     </div>
 
-    <div style="border:1px solid var(--red); border-radius:8px; padding:12px;">
+    <div style="border:1px solid var(--red); border-radius:8px; padding:12px; margin-bottom:20px;">
       <div style="font-size:11.5px; color:var(--red); font-weight:600; margin-bottom:6px;">↓ ЗАГРУЗИТЬ ИЗ ОБЛАКА СЮДА</div>
       <div class="hint" style="margin:0 0 8px 0;">⚠ Заменит (или дополнит) то, что вы видите на этом устройстве, версией с Диска. Используйте, если это устройство отстало или пустое.</div>
       <button class="btn btn-block btn-ghost btn-danger" id="drive-download-btn" style="border-color:var(--red);">⭳ Восстановить с Диска</button>
       ${undoSnap ? `<div class="hint" style="margin:10px 0 6px 0; color:var(--gold);">Есть подстраховка от ${formatDate(undoSnap.savedAt)} — если предыдущее восстановление было ошибкой:</div><button class="btn btn-block" id="drive-undo-btn" style="border-color:var(--gold); color:var(--gold);">↺ Отменить последнее восстановление</button>` : ''}
     </div>
 
+    <div style="border:1px solid var(--border); border-radius:8px; padding:12px;">
+      <div style="font-size:11.5px; color:var(--muted); font-weight:600; margin-bottom:6px;">🧹 ОБСЛУЖИВАНИЕ</div>
+      <div class="hint" style="margin:0 0 8px 0;">Удаляет с Диска файлы вложений, на которые в записях больше нет ссылок (например, вы удалили фото из заметки). Запускать по желанию — не автоматически.</div>
+      <button class="btn btn-block btn-ghost" id="drive-cleanup-btn">Очистить неиспользуемые вложения на Диске</button>
+    </div>
+
     <label class="checkbox-label" style="margin-top:16px;"><input type="checkbox" id="drive-auto-toggle" ${SETTINGS.driveAutoBackup?'checked':''}> Бэкапить на Диск автоматически при изменениях</label>`;
   wrap.querySelector('#drive-upload-btn').onclick = ()=>driveUploadBackup(false);
   wrap.querySelector('#drive-download-btn').onclick = driveDownloadBackup;
+  wrap.querySelector('#drive-cleanup-btn').onclick = cleanupOrphanedAttachments;
   const undoBtn = wrap.querySelector('#drive-undo-btn');
   if(undoBtn) undoBtn.onclick = undoLastRestore;
   wrap.querySelector('#drive-auto-toggle').onchange = async (e)=>{ SETTINGS.driveAutoBackup = e.target.checked; await saveSettings(); };
@@ -1093,11 +1262,11 @@ function migrateItem(it){
   }
   const links = Array.isArray(base.links) ? base.links : (base.link ? [base.link] : []);
   const photosRaw = Array.isArray(base.photos) ? base.photos : (base.photo ? [base.photo] : []);
-  const photos = photosRaw.map(p=> typeof p==='string' ? {id:uid(), src:p} : (p.id ? p : {...p, id:uid()}));
+  const photos = photosRaw.map(p=> typeof p==='string' ? {id:uid(), src:p, driveFileId:null} : (p.id ? {driveFileId:null, ...p} : {...p, id:uid(), driveFileId:null}));
   const filesRaw = Array.isArray(base.files) ? base.files : (base.file ? [base.file] : []);
-  const files = filesRaw.map(f=> f.id ? f : {...f, id:uid()});
+  const files = filesRaw.map(f=> f.id ? {driveFileId:null, ...f} : {...f, id:uid(), driveFileId:null});
   const audioRaw = Array.isArray(base.audio) ? base.audio : [];
-  const audio = audioRaw.map(a=> a.id ? a : {...a, id:uid()});
+  const audio = audioRaw.map(a=> a.id ? {driveFileId:null, ...a} : {...a, id:uid(), driveFileId:null});
   const tables = Array.isArray(base.tables) ? base.tables : [];
   return {
     id: base.id, kind: base.kind, title: base.title||'', text: base.text||'',
@@ -2179,7 +2348,7 @@ document.getElementById('add-audio-btn').onclick=async ()=>{
     const reader = new FileReader();
     reader.onload=(ev)=>{
       const id = uid();
-      modalAudio.push({id, name:'Голосовая заметка '+new Date().toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), dataUrl:ev.target.result, duration:durationSec, size:blob.size});
+      modalAudio.push({id, name:'Голосовая заметка '+new Date().toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), dataUrl:ev.target.result, duration:durationSec, size:blob.size, driveFileId:null});
       renderAudioList();
       insertTokenAtCursor('audio', id);
     };
@@ -2268,7 +2437,7 @@ async function processPhotoBlob(blob, originalName){
   }
   if(compressed){
     const id = uid();
-    modalPhotos.push({id, src:compressed});
+    modalPhotos.push({id, src:compressed, driveFileId:null});
     renderPhotosList();
     insertTokenAtCursor('photo', id);
     flashSaved('фото добавлено');
@@ -2284,7 +2453,7 @@ async function processPhotoBlob(blob, originalName){
   try{
     const dataUrl = await withTimeout(readAsDataUrl(blob), 15000);
     const id = uid();
-    modalFiles.push({id, name, type:blob.type||'application/octet-stream', size:blob.size, dataUrl});
+    modalFiles.push({id, name, type:blob.type||'application/octet-stream', size:blob.size, dataUrl, driveFileId:null});
     renderDocsList();
     insertTokenAtCursor('file', id);
     flashSaved('«'+name+'» добавлено как файл (без сжатия)');
@@ -2328,7 +2497,7 @@ document.getElementById('f-doc-input').onchange=(e)=>{
     const reader=new FileReader();
     reader.onload=(ev)=>{
       const id = uid();
-      modalFiles.push({id, name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:ev.target.result});
+      modalFiles.push({id, name:file.name, type:file.type||'application/octet-stream', size:file.size, dataUrl:ev.target.result, driveFileId:null});
       renderDocsList();
       insertTokenAtCursor('file', id);
     };
