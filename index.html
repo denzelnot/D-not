@@ -910,9 +910,9 @@ function buildLeanItemsForBackup(){
 function buildLocalAttachmentCache(){
   const cache = new Map();
   ITEMS.forEach(it=>{
-    (it.photos||[]).forEach(p=>{ if(p.driveFileId && p.src) cache.set(p.driveFileId, p.src); });
-    (it.files||[]).forEach(f=>{ if(f.driveFileId && f.dataUrl) cache.set(f.driveFileId, f.dataUrl); });
-    (it.audio||[]).forEach(a=>{ if(a.driveFileId && a.dataUrl) cache.set(a.driveFileId, a.dataUrl); });
+    (it.photos||[]).forEach(p=>{ if(p.id && p.src) cache.set('photo:'+p.id, p.src); });
+    (it.files||[]).forEach(f=>{ if(f.id && f.dataUrl) cache.set('file:'+f.id, f.dataUrl); });
+    (it.audio||[]).forEach(a=>{ if(a.id && a.dataUrl) cache.set('audio:'+a.id, a.dataUrl); });
   });
   return cache;
 }
@@ -920,15 +920,17 @@ async function hydrateAttachments(items){
   const cache = buildLocalAttachmentCache();
   let total=0;
   items.forEach(it=>{
-    total += (it.photos||[]).filter(p=>p.driveFileId && !p.src && !cache.has(p.driveFileId)).length;
-    total += (it.files||[]).filter(f=>f.driveFileId && !f.dataUrl && !cache.has(f.driveFileId)).length;
-    total += (it.audio||[]).filter(a=>a.driveFileId && !a.dataUrl && !cache.has(a.driveFileId)).length;
+    total += (it.photos||[]).filter(p=>p.driveFileId && !p.src && !cache.has('photo:'+p.id)).length;
+    total += (it.files||[]).filter(f=>f.driveFileId && !f.dataUrl && !cache.has('file:'+f.id)).length;
+    total += (it.audio||[]).filter(a=>a.driveFileId && !a.dataUrl && !cache.has('audio:'+a.id)).length;
   });
-  // сначала — бесплатно, из локального кэша, без сети и без счётчика прогресса
+  // сначала — бесплатно, из локального кэша (сверяем по id вложения, не по driveFileId:
+  // на этом конкретном устройстве вложение могло появиться раньше, чем на нём вообще
+  // хоть раз что-то грузилось на Диск, поэтому driveFileId локально мог быть пустым)
   items.forEach(it=>{
-    (it.photos||[]).forEach(p=>{ if(p.driveFileId && !p.src && cache.has(p.driveFileId)) p.src=cache.get(p.driveFileId); });
-    (it.files||[]).forEach(f=>{ if(f.driveFileId && !f.dataUrl && cache.has(f.driveFileId)) f.dataUrl=cache.get(f.driveFileId); });
-    (it.audio||[]).forEach(a=>{ if(a.driveFileId && !a.dataUrl && cache.has(a.driveFileId)) a.dataUrl=cache.get(a.driveFileId); });
+    (it.photos||[]).forEach(p=>{ if(p.driveFileId && !p.src && cache.has('photo:'+p.id)) p.src=cache.get('photo:'+p.id); });
+    (it.files||[]).forEach(f=>{ if(f.driveFileId && !f.dataUrl && cache.has('file:'+f.id)) f.dataUrl=cache.get('file:'+f.id); });
+    (it.audio||[]).forEach(a=>{ if(a.driveFileId && !a.dataUrl && cache.has('audio:'+a.id)) a.dataUrl=cache.get('audio:'+a.id); });
   });
   if(!total) return;
   let done=0, failed=0;
