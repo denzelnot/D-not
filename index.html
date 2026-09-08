@@ -905,12 +905,30 @@ function buildLeanItemsForBackup(){
 // чтобы после восстановления оффлайн-режим по-прежнему работал (данные снова целиком лежат в IndexedDB).
 // Каждое вложение качается независимо: если одно не загрузилось (сеть моргнула), это не останавливает
 // остальные — просто останется недокачанным до следующей попытки (см. retryMissingAttachments ниже).
+// ВАЖНО: сначала проверяем, нет ли уже такого driveFileId среди того, что и так лежит локально
+// (неважно, в какой именно записи) — если есть, переиспользуем без обращения к интернету.
+function buildLocalAttachmentCache(){
+  const cache = new Map();
+  ITEMS.forEach(it=>{
+    (it.photos||[]).forEach(p=>{ if(p.driveFileId && p.src) cache.set(p.driveFileId, p.src); });
+    (it.files||[]).forEach(f=>{ if(f.driveFileId && f.dataUrl) cache.set(f.driveFileId, f.dataUrl); });
+    (it.audio||[]).forEach(a=>{ if(a.driveFileId && a.dataUrl) cache.set(a.driveFileId, a.dataUrl); });
+  });
+  return cache;
+}
 async function hydrateAttachments(items){
+  const cache = buildLocalAttachmentCache();
   let total=0;
   items.forEach(it=>{
-    total += (it.photos||[]).filter(p=>p.driveFileId && !p.src).length;
-    total += (it.files||[]).filter(f=>f.driveFileId && !f.dataUrl).length;
-    total += (it.audio||[]).filter(a=>a.driveFileId && !a.dataUrl).length;
+    total += (it.photos||[]).filter(p=>p.driveFileId && !p.src && !cache.has(p.driveFileId)).length;
+    total += (it.files||[]).filter(f=>f.driveFileId && !f.dataUrl && !cache.has(f.driveFileId)).length;
+    total += (it.audio||[]).filter(a=>a.driveFileId && !a.dataUrl && !cache.has(a.driveFileId)).length;
+  });
+  // сначала — бесплатно, из локального кэша, без сети и без счётчика прогресса
+  items.forEach(it=>{
+    (it.photos||[]).forEach(p=>{ if(p.driveFileId && !p.src && cache.has(p.driveFileId)) p.src=cache.get(p.driveFileId); });
+    (it.files||[]).forEach(f=>{ if(f.driveFileId && !f.dataUrl && cache.has(f.driveFileId)) f.dataUrl=cache.get(f.driveFileId); });
+    (it.audio||[]).forEach(a=>{ if(a.driveFileId && !a.dataUrl && cache.has(a.driveFileId)) a.dataUrl=cache.get(a.driveFileId); });
   });
   if(!total) return;
   let done=0, failed=0;
@@ -2745,7 +2763,11 @@ document.getElementById('duplicate-item-btn').onclick=()=>{
 
 document.getElementById('save-item-btn').onclick=()=>{
   const title=document.getElementById('f-title').value.trim();
-  const text=document.getElementById('f-content').value.trim();
+  let text=document.getElementById('f-content').value.trim();
+  // Если кроме служебных токенов вложений в тексте больше ничего нет — сохраняем пустую строку.
+  // Само фото/файл/аудио никуда не денется (оно в photos/files/audio), просто без "голых скобок" в описании.
+  const TOKEN_ONLY_CHECK = /\[\[(photo|table|file|audio):([a-zA-Z0-9_-]+)\]\]/g;
+  if(text && text.replace(TOKEN_ONLY_CHECK, '').trim()===''){ text=''; }
   const links = modalLinks.map(l=>l.trim()).filter(Boolean);
   const photos = modalPhotos.slice();
   const files = modalFiles.slice();
