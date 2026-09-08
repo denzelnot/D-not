@@ -903,6 +903,8 @@ function buildLeanItemsForBackup(){
 }
 // При восстановлении с Диска у входящих вложений есть только driveFileId — подкачиваем сами файлы,
 // чтобы после восстановления оффлайн-режим по-прежнему работал (данные снова целиком лежат в IndexedDB).
+// Каждое вложение качается независимо: если одно не загрузилось (сеть моргнула), это не останавливает
+// остальные — просто останется недокачанным до следующей попытки (см. retryMissingAttachments ниже).
 async function hydrateAttachments(items){
   let total=0;
   items.forEach(it=>{
@@ -911,19 +913,61 @@ async function hydrateAttachments(items){
     total += (it.audio||[]).filter(a=>a.driveFileId && !a.dataUrl).length;
   });
   if(!total) return;
-  let done=0;
+  let done=0, failed=0;
   flashSaved('загрузка вложений: 0/'+total);
   for(const it of items){
     for(const p of (it.photos||[])){
-      if(p.driveFileId && !p.src){ p.src = await driveDownloadAttachmentAsDataUrl(p.driveFileId); done++; flashSaved('загрузка вложений: '+done+'/'+total); }
+      if(p.driveFileId && !p.src){
+        try{ p.src = await driveDownloadAttachmentAsDataUrl(p.driveFileId); done++; }
+        catch(e){ failed++; }
+        flashSaved('загрузка вложений: '+done+'/'+total+(failed?' (ошибок: '+failed+')':''));
+      }
     }
     for(const f of (it.files||[])){
-      if(f.driveFileId && !f.dataUrl){ f.dataUrl = await driveDownloadAttachmentAsDataUrl(f.driveFileId); done++; flashSaved('загрузка вложений: '+done+'/'+total); }
+      if(f.driveFileId && !f.dataUrl){
+        try{ f.dataUrl = await driveDownloadAttachmentAsDataUrl(f.driveFileId); done++; }
+        catch(e){ failed++; }
+        flashSaved('загрузка вложений: '+done+'/'+total+(failed?' (ошибок: '+failed+')':''));
+      }
     }
     for(const a of (it.audio||[])){
-      if(a.driveFileId && !a.dataUrl){ a.dataUrl = await driveDownloadAttachmentAsDataUrl(a.driveFileId); done++; flashSaved('загрузка вложений: '+done+'/'+total); }
+      if(a.driveFileId && !a.dataUrl){
+        try{ a.dataUrl = await driveDownloadAttachmentAsDataUrl(a.driveFileId); done++; }
+        catch(e){ failed++; }
+        flashSaved('загрузка вложений: '+done+'/'+total+(failed?' (ошибок: '+failed+')':''));
+      }
     }
   }
+  if(failed) throw new Error(failed+' из '+total+' вложений не удалось скачать (сеть) — они дозагрузятся автоматически при следующем подключении к интернету');
+}
+// Догружает то, что осталось недокачанным (driveFileId есть, а самого содержимого — нет) прямо в ITEMS,
+// без диалогов restore. Вызывается автоматически при восстановлении сети, чтобы офлайн-режим
+// самовосстанавливался без ручных действий пользователя.
+let retryAttachmentsInFlight=false;
+async function retryMissingAttachments(){
+  if(retryAttachmentsInFlight || !gcalIsConnected()) return;
+  const missing = [];
+  ITEMS.forEach(it=>{
+    (it.photos||[]).forEach(p=>{ if(p.driveFileId && !p.src) missing.push({kind:'photo', obj:p}); });
+    (it.files||[]).forEach(f=>{ if(f.driveFileId && !f.dataUrl) missing.push({kind:'file', obj:f}); });
+    (it.audio||[]).forEach(a=>{ if(a.driveFileId && !a.dataUrl) missing.push({kind:'audio', obj:a}); });
+  });
+  if(!missing.length) return;
+  retryAttachmentsInFlight=true;
+  let done=0;
+  for(const entry of missing){
+    try{
+      const dataUrl = await driveDownloadAttachmentAsDataUrl(entry.obj.driveFileId);
+      if(entry.kind==='photo') entry.obj.src = dataUrl; else entry.obj.dataUrl = dataUrl;
+      done++;
+    }catch(e){ /* сеть опять подвела — попробуем в следующий раз */ }
+  }
+  if(done){
+    try{ await idbSet('items', JSON.stringify(ITEMS)); }catch(e){}
+    flashSaved('вложения дозагружены: '+done+'/'+missing.length);
+    render();
+  }
+  retryAttachmentsInFlight=false;
 }
 // Ручная очистка: удаляет с Диска файлы вложений, на которые больше не ссылается ни одна запись
 // (например, фото удалили из заметки локально). Запускается кнопкой в Настройках, а не автоматически.
@@ -1129,6 +1173,7 @@ function scheduleAutoBackup(){
 }
 window.addEventListener('online', async ()=>{
   await checkDriveFreshness();
+  retryMissingAttachments();
   if(pendingDriveBackup && SETTINGS.driveAutoBackup && gcalIsConnected()) driveUploadBackup(true);
 });
 document.addEventListener('visibilitychange', ()=>{
@@ -1291,7 +1336,7 @@ async function loadData(){
   setInterval(updateBackupStatusIndicator, 20000);
   setInterval(checkDriveFreshness, 120000);
   const restored = await restorePersistedGcalToken();
-  if(restored){ renderGcalField(); renderDriveField(); checkDriveFreshness(); }
+  if(restored){ renderGcalField(); renderDriveField(); checkDriveFreshness(); retryMissingAttachments(); }
   else{ attemptSilentGoogleReconnect(); }
   updateBackupStatusIndicator();
 }
