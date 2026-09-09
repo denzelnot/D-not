@@ -1306,9 +1306,16 @@ function flashSaved(msg){
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{ el.classList.remove('show'); },1400);
 }
-async function saveTags(){ try{ await idbSet('tags', JSON.stringify(TAGS)); flashSaved(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
-async function saveItems(){ try{ await idbSet('items', JSON.stringify(ITEMS)); flashSaved(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
+async function saveTags(){ try{ await idbSet('tags', JSON.stringify(TAGS)); flashSaved(); await markLocalChange(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
+async function saveItems(){ try{ await idbSet('items', JSON.stringify(ITEMS)); flashSaved(); await markLocalChange(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
 async function saveSettings(){ try{ await idbSet('settings', JSON.stringify(SETTINGS)); flashSaved(); }catch(e){} }
+// Фиксируем время последнего локального изменения ДОЛГОВЕЧНО (в IndexedDB), а не только в памяти —
+// так статус "бэкап свежий/не сохранено" остаётся верным даже после закрытия вкладки/перезагрузки
+// телефона до того, как автобэкап успел завершиться.
+async function markLocalChange(){
+  SETTINGS.lastLocalChangeAt = Date.now();
+  try{ await idbSet('settings', JSON.stringify(SETTINGS)); }catch(e){}
+}
 
 function migrateItem(it){
   let base = it;
@@ -1350,6 +1357,10 @@ async function loadData(){
   try{ const i=await idbGet('items'); ITEMS = (i?JSON.parse(i):[]).map(migrateItem); }catch(e){ ITEMS=[]; }
   try{ const s=await idbGet('settings'); SETTINGS = s?JSON.parse(s):{}; }catch(e){ SETTINGS={}; }
   if(SETTINGS.gcalClientId) GCAL_CLIENT_ID = SETTINGS.gcalClientId;
+  // Восстанавливаем статус "не сохранено" по факту, а не по умолчанию: если с последнего
+  // локального изменения прошло больше, чем с последнего успешного бэкапа — значит, реально
+  // ещё не сохранено на Диск, даже если это случилось ещё в прошлой сессии.
+  pendingDriveBackup = (SETTINGS.lastLocalChangeAt||0) > (SETTINGS.driveBackupAt||0);
   if(SETTINGS.passHash) showLockScreen(); else render();
   updateBackupStatusIndicator();
   setInterval(checkReminders, 30000);
@@ -1357,7 +1368,10 @@ async function loadData(){
   setInterval(checkDriveFreshness, 120000);
   scheduleSilentTokenRefresh();
   const restored = await restorePersistedGcalToken();
-  if(restored){ renderGcalField(); renderDriveField(); checkDriveFreshness(); retryMissingAttachments(); }
+  if(restored){
+    renderGcalField(); renderDriveField(); checkDriveFreshness(); retryMissingAttachments();
+    if(pendingDriveBackup && SETTINGS.driveAutoBackup) driveUploadBackup(true);
+  }
   else{ attemptSilentGoogleReconnect(); }
   updateBackupStatusIndicator();
 }
