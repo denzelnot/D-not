@@ -1355,6 +1355,7 @@ async function loadData(){
   setInterval(checkReminders, 30000);
   setInterval(updateBackupStatusIndicator, 20000);
   setInterval(checkDriveFreshness, 120000);
+  scheduleSilentTokenRefresh();
   const restored = await restorePersistedGcalToken();
   if(restored){ renderGcalField(); renderDriveField(); checkDriveFreshness(); retryMissingAttachments(); }
   else{ attemptSilentGoogleReconnect(); }
@@ -1375,6 +1376,20 @@ function attemptSilentGoogleReconnect(){
     }
   };
   tryInit();
+}
+// Пока приложение открыто дольше часа, токен Google истекает сам по себе (так устроен OAuth без сервера —
+// это ограничение самой Google, не приложения). Чтобы реже спрашивать повторный вход, проверяем каждые
+// 5 минут остаток времени и тихо (без всплывающего окна) продлеваем заранее, не дожидаясь истечения.
+function scheduleSilentTokenRefresh(){
+  setInterval(()=>{
+    if(!SETTINGS.gcalClientId || !gcalAccessToken) return;
+    initGcalClientIfNeeded();
+    if(!gcalTokenClient) return;
+    const msLeft = gcalTokenExpiry - Date.now();
+    if(msLeft < 15*60000){
+      try{ gcalTokenClient.requestAccessToken({prompt:''}); }catch(e){}
+    }
+  }, 5*60000);
 }
 
 /* =========================================================
