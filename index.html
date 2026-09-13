@@ -667,18 +667,24 @@ function initGcalClientIfNeeded(){
       // Частая причина "не с первого раза": первая тихая попытка (prompt:'') не удалась,
       // потому что активной сессии/согласия ещё не было — сразу пробуем ещё раз с полным экраном входа,
       // чтобы пользователю не приходилось жать кнопку по нескольку раз вручную.
-      if(err && (err.type==='popup_failed_to_open' || err.type==='popup_closed' || err.type==='unknown') && !gcalConnectRetried){
+      // ВАЖНО: это должно происходить только для явного нажатия "Войти" пользователем (gcalExplicitLoginAttempt).
+      // Фоновые тихие попытки (при запуске офлайн, периодическое продление токена) НЕ должны
+      // всплывающим окном входа мешать работать офлайн — они просто тихо не удаются и всё.
+      if(gcalExplicitLoginAttempt && err && (err.type==='popup_failed_to_open' || err.type==='popup_closed' || err.type==='unknown') && !gcalConnectRetried){
         gcalConnectRetried = true;
         setTimeout(()=>{ try{ gcalTokenClient.requestAccessToken({prompt:'consent'}); }catch(e){} }, 400);
       }
+      gcalExplicitLoginAttempt = false;
     }
   });
 }
 let gcalConnectRetried=false;
+let gcalExplicitLoginAttempt=false;
 function gcalConnect(){
   initGcalClientIfNeeded();
   if(!gcalTokenClient){ alert('Google ещё не загрузился, попробуйте через пару секунд, или проверьте Client ID.'); return; }
   gcalConnectRetried=false;
+  gcalExplicitLoginAttempt=true;
   gcalTokenClient.requestAccessToken({prompt: gcalAccessToken ? '' : 'consent'});
 }
 async function gcalUpsertEvent(item){
@@ -1377,6 +1383,7 @@ async function loadData(){
 }
 function attemptSilentGoogleReconnect(){
   if(!SETTINGS.gcalClientId) return;
+  if(navigator.onLine===false) return; // офлайн — даже не пытаемся, чтобы не мешать работе без сети
   let tries=0;
   const tryInit=()=>{
     tries++;
@@ -1394,9 +1401,11 @@ function attemptSilentGoogleReconnect(){
 // Пока приложение открыто дольше часа, токен Google истекает сам по себе (так устроен OAuth без сервера —
 // это ограничение самой Google, не приложения). Чтобы реже спрашивать повторный вход, проверяем каждые
 // 5 минут остаток времени и тихо (без всплывающего окна) продлеваем заранее, не дожидаясь истечения.
+// Офлайн эта функция ничего не делает — чтобы попытки продления не мешали работать без интернета.
 function scheduleSilentTokenRefresh(){
   setInterval(()=>{
     if(!SETTINGS.gcalClientId || !gcalAccessToken) return;
+    if(navigator.onLine===false) return;
     initGcalClientIfNeeded();
     if(!gcalTokenClient) return;
     const msLeft = gcalTokenExpiry - Date.now();
