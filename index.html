@@ -659,7 +659,9 @@ function initGcalClientIfNeeded(){
         renderGcalField();
         updateBackupStatusIndicator();
         checkDriveFreshness();
-        flashSaved('Google подключён');
+        if(gcalExplicitLoginAttempt) flashSaved('Google подключён'); // тихие продления — без уведомлений
+        gcalExplicitLoginAttempt=false;
+        if(typeof pendingDriveBackup!=='undefined' && pendingDriveBackup && SETTINGS.driveAutoBackup) driveUploadBackup(true);
       }
     },
     error_callback: (err)=>{
@@ -761,7 +763,7 @@ function renderGcalField(){
     const connected = gcalIsConnected();
     const minsLeft = connected ? Math.max(0, Math.round((gcalTokenExpiry-Date.now())/60000)) : 0;
     wrap.innerHTML = `<label>Google (Календарь + Диск)</label>
-      <div class="hint" style="margin-bottom:8px;">${connected ? 'Подключено — доступ действует ещё ~'+minsLeft+' мин.' : 'Client ID сохранён. Нажмите «Войти», чтобы разрешить доступ (потребуется повторять примерно раз в час активной работы).'}</div>
+      <div class="hint" style="margin-bottom:8px;">${connected ? 'Подключено — доступ действует ещё ~'+minsLeft+' мин.' : 'Client ID сохранён. Нажмите «Войти», чтобы разрешить доступ (приложение само продлевает доступ в фоне и при возвращении в него).'}</div>
       <div class="hint mono" style="margin-bottom:8px; word-break:break-all;">ID: ${escapeHtml(SETTINGS.gcalClientId)}</div>
       <button class="btn btn-block ${connected?'':'btn-accent'}" id="gcal-login-btn">${connected?'Обновить доступ':'Войти в Google'}</button>
       <button class="btn btn-block btn-danger" id="gcal-forget-btn" style="margin-top:8px;">Отключить Google</button>`;
@@ -1206,10 +1208,28 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='hidden' && pendingDriveBackup && SETTINGS.driveAutoBackup && gcalIsConnected()){
     clearTimeout(driveBackupDebounce);
     driveUploadBackup(true);
-  } else if(document.visibilityState==='visible' && gcalIsConnected()){
-    checkDriveFreshness();
+  } else if(document.visibilityState==='visible'){
+    if(gcalIsConnected()) checkDriveFreshness();
+    // Пока приложение было свёрнуто, таймеры не работали и токен мог истечь — продлеваем сразу при возврате.
+    trySilentRenew();
   }
 });
+// Тихое продление доступа. Браузеры часто блокируют такой запрос без касания пользователя,
+// поэтому дополнительно пробуем при ПЕРВОМ касании экрана после истечения (окно входа
+// при уже выданном разрешении закрывается само за долю секунды, пароль вводить не нужно).
+let lastSilentRenewAt=0;
+function trySilentRenew(force){
+  if(!SETTINGS.gcalClientId) return;
+  if(navigator.onLine===false) return;
+  const msLeft = gcalAccessToken ? gcalTokenExpiry - Date.now() : -1;
+  if(msLeft > 10*60000) return;
+  if(!force && Date.now()-lastSilentRenewAt < 60000) return;
+  lastSilentRenewAt = Date.now();
+  initGcalClientIfNeeded();
+  if(!gcalTokenClient) return;
+  try{ gcalTokenClient.requestAccessToken({prompt:''}); }catch(e){}
+}
+document.addEventListener('pointerdown', ()=>{ trySilentRenew(); }, {passive:true});
 async function renderDriveField(){
   const wrap = document.getElementById('drive-field');
   if(!wrap) return;
@@ -1410,9 +1430,10 @@ function scheduleSilentTokenRefresh(){
     if(!gcalTokenClient) return;
     const msLeft = gcalTokenExpiry - Date.now();
     if(msLeft < 15*60000){
+      lastSilentRenewAt = Date.now();
       try{ gcalTokenClient.requestAccessToken({prompt:''}); }catch(e){}
     }
-  }, 5*60000);
+  }, 2*60000);
 }
 
 /* =========================================================
