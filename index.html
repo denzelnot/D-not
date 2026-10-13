@@ -1027,21 +1027,33 @@ async function cleanupOrphanedAttachments(){
 let pendingDriveBackup=false;
 let driveRemoteNewer=false;
 let driveFreshnessCheckInFlight=false;
-async function driveGetModifiedTime(){
+async function driveGetRemoteMeta(){
   const fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
   if(!fileId) return null;
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime,appProperties`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
   if(!res.ok) throw new Error('HTTP '+res.status);
   const data = await res.json();
-  return data.modifiedTime || null;
+  return { modifiedTime: data.modifiedTime || null, rev: (data.appProperties && data.appProperties.rev) || null };
 }
+// «Есть версия новее» определяем НЕ по часам устройств (у телефона и ПК они расходятся, а загрузки
+// вложений и повторные бэкапы двигали время файла), а по номеру ревизии: каждый бэкап получает
+// уникальный номер, и устройство помнит номер того, что загрузило/скачало последним.
 async function checkDriveFreshness(){
   if(!gcalIsConnected() || driveFreshnessCheckInFlight) return;
   driveFreshnessCheckInFlight=true;
   try{
-    const remoteModified = await driveGetModifiedTime();
-    const knownTs = SETTINGS.driveBackupAt;
-    driveRemoteNewer = !!(remoteModified && knownTs && new Date(remoteModified).getTime() > new Date(knownTs).getTime() + 5000);
+    const meta = await driveGetRemoteMeta();
+    if(!meta || !meta.rev){
+      driveRemoteNewer = false; // старый бэкап без номера ревизии — сравнивать не с чем, не тревожим
+    } else if(!SETTINGS.driveBackupRev){
+      // Это устройство ещё не знает номеров. Если оно синхронизировалось примерно к моменту записи файла — просто принимаем.
+      const known = SETTINGS.driveBackupAt || 0;
+      const remoteTs = meta.modifiedTime ? new Date(meta.modifiedTime).getTime() : 0;
+      if(known && remoteTs <= known + 5*60000){ SETTINGS.driveBackupRev = meta.rev; await saveSettings(); driveRemoteNewer=false; }
+      else driveRemoteNewer = !!known;
+    } else {
+      driveRemoteNewer = meta.rev !== SETTINGS.driveBackupRev;
+    }
   }catch(e){ /* сетевой сбой проверки — тихо игнорируем, попробуем в следующий раз */ }
   driveFreshnessCheckInFlight=false;
   updateBackupStatusIndicator();
@@ -1062,17 +1074,20 @@ async function driveUploadBackup(silent){
   const payload = JSON.stringify({tags:TAGS, items:buildLeanItemsForBackup(), exportedAt:new Date().toISOString()}, null, 2);
   try{
     let fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+    const newRev = uid();
     if(fileId){
-      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      const boundary0='dnotbound';
+      const body0 = `--${boundary0}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({appProperties:{rev:newRev}})}\r\n--${boundary0}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n--${boundary0}--`;
+      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
         method:'PATCH',
-        headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'application/json' },
-        body: payload
+        headers:{ 'Authorization':'Bearer '+gcalAccessToken, 'Content-Type':'multipart/related; boundary='+boundary0 },
+        body: body0
       });
       if(!res.ok) throw new Error('HTTP '+res.status);
     } else {
       const folderId = await driveEnsureFolder();
       const boundary='dnotbound';
-      const metadata=JSON.stringify({name:DRIVE_BACKUP_NAME, mimeType:'application/json', parents:[folderId]});
+      const metadata=JSON.stringify({name:DRIVE_BACKUP_NAME, mimeType:'application/json', parents:[folderId], appProperties:{rev:newRev}});
       const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${payload}\r\n--${boundary}--`;
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method:'POST',
@@ -1084,6 +1099,7 @@ async function driveUploadBackup(silent){
       fileId = data.id;
     }
     SETTINGS.driveBackupFileId = fileId;
+    SETTINGS.driveBackupRev = newRev;
     SETTINGS.driveBackupAt = Date.now();
     await saveSettings();
     pendingDriveBackup=false;
@@ -1110,6 +1126,7 @@ async function driveDownloadBackup(){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
     if(!data.tags || !data.items) throw new Error('неверный формат файла на Диске');
+    let remoteMeta=null; try{ remoteMeta = await driveGetRemoteMeta(); }catch(e){}
 
     try{ await idbSet('undo_snapshot', JSON.stringify({tags:TAGS, items:ITEMS, savedAt:Date.now()})); }catch(e){}
 
@@ -1128,11 +1145,18 @@ async function driveDownloadBackup(){
       const existingItemIds=new Set(ITEMS.map(i=>i.id));
       incomingItems.forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
     }
+    // Сохраняем «тихо»: восстановление — это не новая правка, иначе устройство тут же зальёт
+    // обратно тот же файл, и другие устройства решат, что появилась «версия новее» (раньше так и было).
+    await saveTags(true); await saveItems(true);
+    clearTimeout(driveBackupDebounce);
     SETTINGS.driveBackupFileId = fileId;
+    if(remoteMeta && remoteMeta.rev) SETTINGS.driveBackupRev = remoteMeta.rev;
     SETTINGS.driveBackupAt = Date.now();
-    await saveTags(); await saveItems(); await saveSettings();
+    // при «заменить» всё совпадает с Диском; при «добавить» локально есть лишнее — его ещё нужно отправить
+    SETTINGS.lastLocalChangeAt = replace ? SETTINGS.driveBackupAt : SETTINGS.driveBackupAt + 1;
+    await saveSettings();
     driveRemoteNewer=false;
-    if(replace){ pendingDriveBackup=false; }
+    pendingDriveBackup = !replace;
     updateBackupStatusIndicator();
     renderConflictBanner();
     render();
@@ -1332,8 +1356,10 @@ function flashSaved(msg){
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{ el.classList.remove('show'); },1400);
 }
-async function saveTags(){ try{ await idbSet('tags', JSON.stringify(TAGS)); flashSaved(); await markLocalChange(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
-async function saveItems(){ try{ await idbSet('items', JSON.stringify(ITEMS)); flashSaved(); await markLocalChange(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
+async function saveTags(quiet){ try{ await idbSet('tags', JSON.stringify(TAGS)); flashSaved(); if(quiet) return; await markLocalChange(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
+// quiet=true — сохранить только локально, НЕ считать это изменением данных и не запускать бэкап
+// (нужно для служебных записей: восстановление с Диска, отметка «напоминание показано»).
+async function saveItems(quiet){ try{ await idbSet('items', JSON.stringify(ITEMS)); flashSaved(); if(quiet) return; await markLocalChange(); scheduleAutoBackup(); }catch(e){ alert('Не удалось сохранить: '+e.message); } }
 async function saveSettings(){ try{ await idbSet('settings', JSON.stringify(SETTINGS)); flashSaved(); }catch(e){} }
 // Фиксируем время последнего локального изменения ДОЛГОВЕЧНО (в IndexedDB), а не только в памяти —
 // так статус "бэкап свежий/не сохранено" остаётся верным даже после закрытия вкладки/перезагрузки
@@ -1567,7 +1593,7 @@ function checkReminders(){
       notifyReminder(it);
     }
   });
-  if(changed) saveItems();
+  if(changed) saveItems(true); // служебная отметка, не повод для бэкапа
 }
 function notifyReminder(item){
   const text = item.title || snippetOf(item) || 'Напоминание';
