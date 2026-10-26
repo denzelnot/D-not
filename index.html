@@ -77,6 +77,8 @@
   .children{ margin-left:9px; border-left:1.5px solid rgba(255,255,255,.16); padding-left:9px; }
 
   .pinned-block{ padding:2px 8px 8px 8px; }
+  .quick-btn{ cursor:pointer; background:transparent; font:inherit; }
+  .quick-btn.on{ color:var(--gold); border-color:var(--gold); }
   .section-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.08em; color:var(--dim); text-transform:uppercase; padding:10px 10px 4px 10px; }
 
   .sidebar-footer{ border-top:1px solid var(--border); padding:10px 12px; display:flex; gap:8px; }
@@ -489,6 +491,10 @@
           <option value="yearly">Повторять каждый год</option>
         </select>
         <label class="checkbox-label hidden" id="gcal-sync-wrap"><input type="checkbox" id="f-gcal-sync"> Добавить событие в Google Календарь</label>
+      </div>
+
+      <div class="field" id="quick-field">
+        <label class="checkbox-label"><input type="checkbox" id="f-quick"> ⚡ Быстрый доступ <span class="hint" style="margin:0;">(запись появится в меню слева в блоке «Быстрый доступ» — отдельно от меток)</span></label>
       </div>
 
       <div class="field" id="tags-field">
@@ -1485,6 +1491,7 @@ function showLockScreen(){
 function childrenOf(parentId){ return TAGS.filter(t=>t.parent===parentId).sort((a,b)=>(a.order??0)-(b.order??0)); }
 function tagById(id){ return TAGS.find(t=>t.id===id); }
 function itemCountForTag(tagId){ return ITEMS.filter(it=>!it.trashed && it.tagIds.includes(tagId)).length; }
+function quickCount(){ return ITEMS.filter(it=>!it.trashed && it.quick).length; }
 function inboxCount(){ return ITEMS.filter(it=>!it.trashed && it.tagIds.length===0).length; }
 function formatDate(ts){ const d=new Date(ts); return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }
 function snippetOf(item){ return (item.text||'').replace(/\s+/g,' ').trim(); }
@@ -1658,6 +1665,7 @@ function orphanedProjectCount(){ return ITEMS.filter(isOrphanedProject).length; 
 function renderPinned(){
   const wrap=document.getElementById('pinned-block');
   wrap.innerHTML='';
+  wrap.appendChild(makeNodeRow({id:'quick',label:'Быстрый доступ',code:'',icon:'⚡',count:quickCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'inbox',label:'Входящие',code:'',icon:'▤',count:inboxCount(),hasChildren:false,isPinned:true}));
   wrap.appendChild(makeNodeRow({id:'processed',label:'Обработанные',code:'',icon:'▦',count:processedCount(),hasChildren:false,isPinned:true}));
   const {taskRoot, projectRoot, areaRoot} = getGtdRoots();
@@ -1716,6 +1724,7 @@ function renderTree(){ const scroll=document.getElementById('tree-scroll'); scro
    ГЛАВНАЯ ОБЛАСТЬ
    ========================================================= */
 function currentNodeInfo(){
+  if(selectedNodeId==='quick') return {label:'Быстрый доступ',code:'',desc:'Записи, которые вы отметили ⚡ — всегда под рукой, независимо от меток'};
   if(selectedNodeId==='inbox') return {label:'Входящие',code:'',desc:'Необработанные записи — без меток'};
   if(selectedNodeId==='processed') return {label:'Обработанные',code:'',desc:'Все записи с хотя бы одной меткой, из всех разделов сразу'};
   if(selectedNodeId==='today') return {label:'Сегодня',code:'',desc:'Напоминания на сегодня и просроченные'};
@@ -1742,7 +1751,8 @@ function itemsForSelection(){
     ))).slice().sort((a,b)=>b.createdAt-a.createdAt);
   }
   let list;
-  if(selectedNodeId==='inbox') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length===0);
+  if(selectedNodeId==='quick') list=ITEMS.filter(it=>!it.trashed && it.quick);
+  else if(selectedNodeId==='inbox') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length===0);
   else if(selectedNodeId==='processed') list=ITEMS.filter(it=>!it.trashed && it.tagIds.length>0);
   else if(selectedNodeId==='today') list=ITEMS.filter(isDueTodayOrOverdue);
   else if(selectedNodeId==='orphaned') list=ITEMS.filter(isOrphanedTask);
@@ -1783,6 +1793,7 @@ function renderList(){
   if(list.length===0){
     const es=document.createElement('div'); es.className='empty-state';
     if(searching) es.innerHTML=`<div class="glyph">∅</div><div class="msg">Ничего не найдено по запросу «${escapeHtml(searchQuery.trim())}».</div>`;
+    else if(selectedNodeId==='quick') es.innerHTML=`<div class="glyph">⚡</div><div class="msg">Здесь пока пусто.<br>Нажмите ⚡ на карточке или поставьте галочку «Быстрый доступ» в записи — и она появится здесь. Убрать можно так же в любой момент.</div>`;
     else if(selectedNodeId==='inbox') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Входящие пусты.<br>Нажмите «＋ Добавить», чтобы закинуть сюда заметку или задачу — а разобрать по разделам можно позже (на ПК — можно просто перетащить карточку на нужный раздел слева).</div>`;
     else if(selectedNodeId==='processed') es.innerHTML=`<div class="glyph">∅</div><div class="msg">Пока ничего не обработано — ни одна запись ещё не получила метку.</div>`;
     else if(selectedNodeId==='today') es.innerHTML=`<div class="glyph">☀</div><div class="msg">На сегодня и просроченного ничего нет.</div>`;
@@ -1834,7 +1845,7 @@ function renderList(){
           <div class="card-date mono">${formatDate(item.createdAt)}</div>
         </div>
         ${item.title && item.text ? `<div class="card-snippet">${escapeHtml(snippetOf(item))}</div>` : ''}
-        <div class="card-tags">${tagsHtml}<button type="button" class="share-btn" title="Поделиться">⇪ Поделиться</button></div>
+        <div class="card-tags">${tagsHtml}<button type="button" class="quick-btn tag-chip ${item.quick?'on':''}" title="${item.quick?'Убрать из быстрого доступа':'Добавить в быстрый доступ'}">⚡${item.quick?' В быстром доступе':''}</button><button type="button" class="share-btn" title="Поделиться">⇪ Поделиться</button></div>
         ${expandedChecklistHtml}
       </div>
     `;
@@ -1870,6 +1881,7 @@ function renderList(){
         if(a.dataset.fileIdx!==undefined){ e.preventDefault(); const f=item.files[parseInt(a.dataset.fileIdx,10)]; if(f) openFilePreview(f); }
       };
     });
+    card.querySelector('.quick-btn').onclick=(e)=>{ e.stopPropagation(); card.dataset.justDragged='1'; toggleQuick(item.id); };
     card.querySelector('.share-btn').onclick=(e)=>{ e.stopPropagation(); shareItem(item); };
     card.onclick=()=>{ if(card.dataset.justDragged){ delete card.dataset.justDragged; return; } openItemView(item); };
     makeCardDraggable(card, item);
@@ -1880,6 +1892,16 @@ function renderList(){
 /* =========================================================
    КОРЗИНА
    ========================================================= */
+function toggleQuick(id){
+  const it = ITEMS.find(i=>i.id===id);
+  if(!it) return;
+  it.quick = !it.quick;
+  it.updatedAt = Date.now();
+  flashSaved(it.quick ? '⚡ в быстром доступе' : 'убрано из быстрого доступа');
+  saveItems();
+  render();
+}
+
 function renderTrashList(){
   const wrap=document.getElementById('item-list');
   wrap.innerHTML='';
@@ -2114,7 +2136,11 @@ function applyDragTag(item, targetId){
     render();
     return;
   }
-  if(targetId==='inbox'){
+  if(targetId==='quick'){
+    if(fresh.quick){ flashSaved('уже в быстром доступе'); return; }
+    fresh.quick=true;
+    flashSaved('⚡ в быстром доступе');
+  } else if(targetId==='inbox'){
     if(fresh.tagIds.length===0) return;
     fresh.tagIds=[];
     flashSaved('во Входящих');
@@ -2418,6 +2444,7 @@ function openItemModal(item){
   renderLinksList(); renderPhotosList(); renderDocsList(); renderAudioList(); renderTablesList();
 
   document.getElementById('f-taskdone').checked = item ? !!item.taskDone : false;
+  document.getElementById('f-quick').checked = item ? !!item.quick : (selectedNodeId==='quick');
   document.getElementById('f-reminder').value = item && item.reminderAt ? toLocalInputValue(item.reminderAt) : '';
   document.getElementById('f-gcal-sync').checked = item ? !!item.gcalSync : false;
   document.getElementById('f-recurrence').value = item && item.recurrence ? item.recurrence : 'none';
@@ -2875,6 +2902,7 @@ document.getElementById('save-item-btn').onclick=()=>{
     kind: currentType, title, text, links, photos, files, audio, tables,
     taskDone: currentType==='task' ? document.getElementById('f-taskdone').checked : false,
     tagIds: Array.from(modalTagIds),
+    quick: document.getElementById('f-quick').checked,
     checklist: cleanChecklist,
     reminderAt,
     reminderNotified: (base && base.reminderAt===reminderAt) ? !!base.reminderNotified : false,
