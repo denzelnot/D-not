@@ -549,6 +549,13 @@
       <div class="field" id="drive-field"></div>
       <div class="field" id="pass-field"></div>
       <div class="field">
+        <label>Файл бэкапа (.json)</label>
+        <div class="hint" style="margin-bottom:8px;">Запасной путь, если Диск недоступен: сохранить копию в файл или загрузить записи из файла (например, скачанного с Диска). Перед загрузкой делается страховка — «Отменить восстановление».</div>
+        <button class="btn btn-block" id="export-file-btn">⭳ Сохранить копию в файл</button>
+        <button class="btn btn-block" id="import-file-btn" style="margin-top:8px;">⭱ Загрузить из файла…</button>
+        <input type="file" id="import-file-input" accept=".json,application/json" style="display:none;">
+      </div>
+      <div class="field">
         <label style="color:var(--red);">Опасная зона</label>
         <div class="hint">Сотрёт заметки, задачи, код доступа и подключение Google только на этом устройстве/браузере. Бэкап на Google Диске и события в Google Календаре не затронет — их можно будет восстановить обратно в любой момент.</div>
         <button class="btn btn-block btn-danger" id="wipe-device-btn" style="margin-top:8px;">Выйти и очистить это устройство</button>
@@ -1423,6 +1430,7 @@ function migrateItem(it){
     id: base.id, kind: base.kind, title: base.title||'', text: base.text||'',
     links, photos, files, audio, tables,
     taskDone: !!base.taskDone, tagIds: base.tagIds||[], checklist: base.checklist||[],
+    quick: !!base.quick,
     reminderAt: base.reminderAt||null, reminderNotified: !!base.reminderNotified,
     recurrence: base.recurrence||'none',
     gcalSync: !!base.gcalSync, gcalEventId: base.gcalEventId||null,
@@ -3087,16 +3095,22 @@ function importDataFromFile(file){
       const data=JSON.parse(e.target.result);
       if(!data.tags||!data.items) throw new Error('неверный формат файла');
       const replace = confirm('ОК — заменить все текущие данные файлом.\nОтмена — добавить записи из файла к текущим (свою структуру разделов оставить).');
-      if(replace){ TAGS=data.tags; ITEMS=data.items; }
+      try{ await idbSet('undo_snapshot', JSON.stringify({tags:TAGS, items:ITEMS, savedAt:Date.now()})); }catch(_){}
+      const incoming = data.items.map(migrateItem);
+      // Файл бэкапа «облегчённый» (у вложений только ссылки на Диск): подтягиваем содержимое из того,
+      // что уже лежит на этом устройстве, а недостающее — с Диска, если Google подключён.
+      try{ await hydrateAttachments(incoming); }catch(_){ /* недокачанное дозагрузится само при подключении */ }
+      if(replace){ TAGS=data.tags; ITEMS=incoming; }
       else{
         const existingTagIds=new Set(TAGS.map(t=>t.id));
         data.tags.forEach(t=>{ if(!existingTagIds.has(t.id)) TAGS.push(t); });
         const existingItemIds=new Set(ITEMS.map(i=>i.id));
-        data.items.forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
+        incoming.forEach(it=>{ if(!existingItemIds.has(it.id)) ITEMS.push(it); });
       }
       await saveTags(); await saveItems();
       alert('Импорт завершён.');
       render();
+      retryMissingAttachments();
     }catch(err){ alert('Не удалось прочитать файл: '+err.message); }
   };
   reader.readAsText(file);
@@ -3144,6 +3158,9 @@ document.getElementById('wipe-device-btn').onclick=async ()=>{
     alert('Не удалось очистить: '+e.message);
   }
 };
+document.getElementById('export-file-btn').onclick=exportData;
+document.getElementById('import-file-btn').onclick=()=>document.getElementById('import-file-input').click();
+document.getElementById('import-file-input').onchange=(e)=>{ const f=e.target.files[0]; e.target.value=''; if(f) importDataFromFile(f); };
 document.getElementById('settings-modal-close').onclick=closeSettingsModal;
 document.getElementById('settings-modal-close2').onclick=closeSettingsModal;
 document.getElementById('settings-modal-overlay').onclick=(e)=>{ if(e.target.id==='settings-modal-overlay') closeSettingsModal(); };
