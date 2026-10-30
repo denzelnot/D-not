@@ -1033,8 +1033,29 @@ async function cleanupOrphanedAttachments(){
 let pendingDriveBackup=false;
 let driveRemoteNewer=false;
 let driveFreshnessCheckInFlight=false;
+// Файл бэкапа ищем по сохранённому ID, но только если он реально существует и НЕ в корзине.
+// Иначе (файл удалили/переместили в корзину/заменили новым) — ищем заново по имени среди живых файлов,
+// чтобы приложение не читало и не писало в устаревший файл.
+async function driveResolveBackupFileId(){
+  const saved = SETTINGS.driveBackupFileId;
+  if(saved){
+    try{
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${saved}?fields=id,trashed`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
+      if(res.ok){
+        const d = await res.json();
+        if(!d.trashed) return saved;
+      } else if(res.status!==404 && res.status!==403){
+        return saved; // временный сбой (сеть/сервер) — не сбрасываем ID зря
+      }
+    }catch(e){ return saved; }
+    SETTINGS.driveBackupFileId = null;
+    SETTINGS.driveBackupRev = null;
+    try{ await saveSettings(); }catch(e){}
+  }
+  return await driveFindFileId();
+}
 async function driveGetRemoteMeta(){
-  const fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+  const fileId = await driveResolveBackupFileId();
   if(!fileId) return null;
   const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime,appProperties`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
   if(!res.ok) throw new Error('HTTP '+res.status);
@@ -1079,7 +1100,7 @@ async function driveUploadBackup(silent){
   }
   const payload = JSON.stringify({tags:TAGS, items:buildLeanItemsForBackup(), exportedAt:new Date().toISOString()}, null, 2);
   try{
-    let fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+    let fileId = await driveResolveBackupFileId();
     const newRev = uid();
     if(fileId){
       const boundary0='dnotbound';
@@ -1126,7 +1147,7 @@ async function driveUploadBackup(silent){
 async function driveDownloadBackup(){
   if(!gcalIsConnected()){ alert('Сначала подключите Google в Настройках.'); return; }
   try{
-    const fileId = SETTINGS.driveBackupFileId || await driveFindFileId();
+    const fileId = await driveResolveBackupFileId();
     if(!fileId){ alert('На Google Диске ещё нет бэкапа от D-Not.'); return; }
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ 'Authorization':'Bearer '+gcalAccessToken } });
     if(!res.ok) throw new Error('HTTP '+res.status);
